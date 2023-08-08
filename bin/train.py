@@ -107,7 +107,6 @@ class Config:
 def get_model_instances(tuned_models, config_per_model):
     """Returns a list of model instances for the models that were tuned and appends a linear regression model."""
 
-    config = Config().from_dict(config_per_model[tuned_models[0]][0])
     model_instances = {}
     for model in tuned_models:
         print("getting model instance for " + model)
@@ -117,6 +116,7 @@ def get_model_instances(tuned_models, config_per_model):
 
     # since we did not optimize the hyperparameters for the linear regression model, we need to create a new instance
     print("getting model instance for linear regression")
+    config = Config().from_dict(config_per_model[tuned_models[0]][0])
     lr_model = LinearRegressionModel(
         lags=config.n_lags,
         lags_future_covariates=[0],
@@ -202,12 +202,16 @@ def get_model(config):
         )
 
     elif model == "rf":
-        rf_kwargs = {
-            "n_estimators": config.n_estimators,
-            "max_depth": config.max_depth,
-            "min_samples_split": config.min_samples_split,
-            "min_samples_leaf": config.min_samples_leaf,
-        }
+        try:
+            rf_kwargs = {
+                "n_estimators": config.n_estimators,
+                "max_depth": config.max_depth,
+                "min_samples_split": config.min_samples_split,
+                "min_samples_leaf": config.min_samples_leaf,
+            }
+
+        except:
+            rf_kwargs = {}
 
         model = RandomForest(
             lags=config.n_lags,
@@ -315,6 +319,9 @@ def get_model(config):
             lr_scheduler_kwargs=schedule_kwargs,
             random_state=42,
         )
+
+    else:
+        raise ValueError(f"Model {model} not supported.")
 
     return model
 
