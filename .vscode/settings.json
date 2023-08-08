@@ -16,8 +16,15 @@
         "titleBar.activeBackground": "#f9e64f",
         "titleBar.activeForeground": "#15202b",
         "titleBar.inactiveBackground": "#f9e64f99",
-        "titleBar.inactiveForeground": "#15202b99"
+        "titleBar.inactiveForeground": "#15202b99",
+        "editorGroup.border": "#fbed80",
+        "statusBar.debuggingBackground": "#4f62f9",
+        "statusBar.debuggingForeground": "#e7e7e7"
     },
     "peacock.color": "#f9e64f",
-    "python.analysis.typeCheckingMode": "basic"
+    "python.analysis.typeCheckingMode": "basic",
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.black-formatter"
+    },
+    "python.formatting.provider": "none"
 }
