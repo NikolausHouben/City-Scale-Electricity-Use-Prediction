@@ -226,6 +226,12 @@ def get_model(config):
         try:
             nbeats_kwargs = {
                 "batch_size": config.batch_size,
+                "num_stacks": config.num_stacks,
+                "num_blocks": config.num_blocks,
+                "num_layers": config.num_layers,
+                "layer_widths": config.layer_widths,
+                "dropout": config.dropout,
+
             }
 
         except:
