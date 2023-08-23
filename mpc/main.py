@@ -206,14 +206,14 @@ def run_operations(
     return pd.DataFrame(operations).T
 
 
-def main():
+def run_all():
     ##############################################
     # input parameters
     #############################################
 
     # parameters of the optimization
     initial_soc = 0.5  # initial state of charge of the battery (no unit)
-    bat_size_kwh = 8  # size of the batter in kWh
+    bat_size_kwh = 8  # size of the battery in kWh
     bat_duration = 2  # battery duration (Max_kW = bat_size/duration)
     bat_efficiency = 0.95  # charging and discharging efficiency of the battery
     tier2_cost_multiplier = 1.5  # cost multiplication of the tier 2 load
@@ -232,7 +232,9 @@ def main():
     }
 
     # read raw forecasts and calculate the average load
-    fc = pd.read_csv("forecasts.csv", index_col=0)
+    fc = pd.read_csv(
+        "/Users/nikolaushouben/Desktop/WattCast/mpc/forecasts.csv", index_col=0
+    )
     fc.index = pd.to_datetime(fc.index)
 
     # tier load magnitude is equal to the average load (any other value works)
@@ -305,4 +307,5 @@ def main():
     results.to_csv("operation_results.csv")
 
 
-main()
+if __name__ == "__main__":
+    run_all()

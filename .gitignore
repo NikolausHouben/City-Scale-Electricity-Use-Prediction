@@ -2,6 +2,7 @@ wandb/
 artifacts/
 models/
 data/raw_data
+data/results
 imgs/figures
 media/plotly
 bin/artifacts
