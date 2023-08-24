@@ -11,6 +11,13 @@ from pyomo.environ import (
 from pyomo.opt import SolverFactory
 import pandas as pd
 from datetime import timedelta
+import os
+import argparse
+
+import wandb
+
+
+repository_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def get_forecasts(df, h, fc_type, horizon):
@@ -19,7 +26,7 @@ def get_forecasts(df, h, fc_type, horizon):
     return fct
 
 
-def run_model(
+def optimizer_step(
     load_forecast,
     prices,
     bss_energy,
@@ -137,6 +144,7 @@ def run_operations(
     hours_of_simulation,
     fc,
     fc_type,
+    prices,
     horizon,
     bat_size_kwh,
     bat_duration,
@@ -160,11 +168,13 @@ def run_operations(
         load = get_forecasts(df=fc, h=t, fc_type=fc_type, horizon=horizon)
 
         # get the energy prices as a list
-        ep = get_forecasts(df=fc, h=t, fc_type="energy_prices_dol_kwh", horizon=horizon)
+        ep = get_forecasts(
+            df=prices, h=t, fc_type="energy_prices_dol_kwh", horizon=horizon
+        )
 
         # gets a set_point for the next interval based on the MPC optimization
         # the horizon of the optimization is given by the length of the forecast
-        set_point = run_model(
+        set_point = optimizer_step(
             load_forecast=load,
             prices=ep,
             bss_energy=energy_in_the_battery,
@@ -206,7 +216,7 @@ def run_operations(
     return pd.DataFrame(operations).T
 
 
-def run_all():
+def run_mpc(spatial_scale, location):
     ##############################################
     # input parameters
     #############################################
@@ -224,21 +234,35 @@ def run_all():
     # type of forecasts to evaluation and corresponding horizon in hours
     fc_types = {
         "XGBModel_4 Hours Ahead (kW)": 4,
-        "XGBModel_8 Hours Ahead (kW)": 8,
-        "NBEATSModel_4 Hours Ahead (kW)": 4,
-        "NBEATSModel_8 Hours Ahead (kW)": 8,
-        "Actual load (kW)_4": 4,
-        "Actual load (kW)_8": 8,
+        # "XGBModel_8 Hours Ahead (kW)": 8,
+        # "NBEATSModel_4 Hours Ahead (kW)": 4,
+        # "NBEATSModel_8 Hours Ahead (kW)": 8,
+        # "Actual load (kW)_4": 4,
+        # "Actual load (kW)_8": 8,
     }
 
     # read raw forecasts and calculate the average load
     fc = pd.read_csv(
-        "/Users/nikolaushouben/Desktop/WattCast/mpc/forecasts.csv", index_col=0
+        os.path.join(
+            repository_dir, f"data/results/{spatial_scale}/{location}/forecasts.csv"
+        ),
+        index_col=0,
+        parse_dates=True,
     )
-    fc.index = pd.to_datetime(fc.index)
 
     # tier load magnitude is equal to the average load (any other value works)
     tier_load_magnitude = fc["Actual load (kW)"].mean()
+
+    # read electricity prices
+
+    ep = pd.read_csv(
+        os.path.join(
+            repository_dir,
+            f"data/results/{spatial_scale}/{location}/prices.csv",
+        ),
+        index_col=0,
+        parse_dates=True,
+    )
 
     ##############################################
     # simulation starts here
@@ -252,6 +276,7 @@ def run_all():
             hours_of_simulation=hours_of_simulation,
             fc=fc,  # forecast table
             fc_type=fc_type,  # label of forecast type
+            prices=ep,  # electricity prices
             horizon=fc_types[fc_type],
             bat_size_kwh=bat_size_kwh,
             bat_duration=bat_duration,
@@ -275,7 +300,7 @@ def run_all():
 
     # calculate operation costs of each forecast
     cost_results = {}
-    results = results.join(fc[["Actual load (kW)", "energy_prices_dol_kwh"]])
+    results = results.join(fc[["Actual load (kW)"]]).join(ep[["energy_prices_dol_kwh"]])
     for fc_type in fc_types.keys():
         tier1 = (
             results[f"opr_tier1_load_{fc_type}"] * results["energy_prices_dol_kwh"]
@@ -307,5 +332,15 @@ def run_all():
     results.to_csv("operation_results.csv")
 
 
+def main():
+    parser = argparse.ArgumentParser(description="Run MPC")
+    parser.add_argument("--spatial_scale", type=str, help="Spatial scale")
+    parser.add_argument("--location", type=str, help="Location")
+
+    args = parser.parse_args()
+
+    run_mpc(spatial_scale=args.spatial_scale, location=args.location)
+
+
 if __name__ == "__main__":
-    run_all()
+    main()
