@@ -280,23 +280,23 @@ def run_mpc(df_fc):
 
     hours_of_simulation = 600
 
-    timesteps_per_hour = infer_frequency(df_fc)
+    timesteps_per_hour = infer_frequency(df_fc) // 60
     df_scaled, gt_max, gt_min = scale_by_gt(df_fc)
 
     # battery parameters
     initial_soc = 0.5  # initial state of charge of the battery (no unit)
-    bat_size_kwh = 2 * timesteps_per_hour  # size of the battery in kWh
+    bat_size_kwh = 2.0 * timesteps_per_hour  # size of the battery in kWh
     c_rate = 0.5  # C-rate of the battery
     bat_duration = (
-        c_rate * bat_size_kwh
+        bat_size_kwh * timesteps_per_hour / c_rate
     )  # battery duration (Max_kW = bat_size/duration)
     bat_efficiency = 0.95  # charging and discharging efficiency of the battery
 
     # electricity price parameters
     tier_limit = df_scaled["Ground Truth"].quantile(0.95)
-    ep = generate_ep_profile(df=df_scaled)
+    ep = generate_ep_profile(df=df_scaled, hour_shift=4, mu=0.05, sigma=0.1)
     tier2_cost_multiplier = 1.5  # cost multiplication of the tier 2 load
-    cost_of_peak = 5.0  # cost of the monthly peak
+    cost_of_peak = 10  # cost of the monthly peak
 
     fc_types = construct_fc_types(df_fc=df_scaled)
 
@@ -373,22 +373,12 @@ def main():
     # Initialize your project
     api = wandb.Api()
     runs = api.runs("Wattcast")
-
     name_id_dict = get_run_name_id_dict(runs)
-
     files = get_file_names(project_name, name_id_dict, args.run, args.season)
-
     side_by_side_plots_dict = download_plotly_plots(get_latest_plotly_plots(files))
-
     df_all = side_by_side_df(side_by_side_plots_dict)
 
     df_fc = df_all.iloc[:, -3:]
-
-    # df_fc = pd.read_csv(
-    #     os.path.join(repository_dir, "data", "results", "fc.csv"),
-    #     index_col=0,
-    #     parse_dates=True,
-    # )
 
     run_mpc(df_fc)
 
