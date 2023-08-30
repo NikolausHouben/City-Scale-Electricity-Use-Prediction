@@ -5,17 +5,34 @@ from pyomo.environ import (
     Var,
     Constraint,
     Objective,
-    Reals,
-    NonNegativeReals,
+    Reals,  # type: ignore
+    NonNegativeReals,  # type: ignore
 )
 from pyomo.opt import SolverFactory
 import pandas as pd
 from datetime import timedelta
 import os
+import re
 import argparse
+from utils import (
+    infer_frequency,
+    get_run_name_id_dict,
+    get_file_names,
+    get_latest_plotly_plots,
+    download_plotly_plots,
+    side_by_side_df,
+)
+import numpy as np
 
 import wandb
 
+project_name = "Wattcast"
+run = wandb.init(
+    project=project_name,
+    name="mpc_runs",
+    id="mpc_runs",
+    resume=True,
+)
 
 repository_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -26,7 +43,17 @@ def get_forecasts(df, h, fc_type, horizon):
     return fct
 
 
-def optimizer_step(
+def construct_fc_types(df_fc):
+    fc_types = {}
+    for col in df_fc.iloc[:, :-1].columns:
+        horizon = re.findall(r"\d+", col)[0]
+        fc_types[col] = int(horizon)
+
+    fc_types[df_fc.columns[-1]] = max(list(fc_types.values()))
+    return fc_types
+
+
+def run_opt(
     load_forecast,
     prices,
     bss_energy,
@@ -168,13 +195,11 @@ def run_operations(
         load = get_forecasts(df=fc, h=t, fc_type=fc_type, horizon=horizon)
 
         # get the energy prices as a list
-        ep = get_forecasts(
-            df=prices, h=t, fc_type="energy_prices_dol_kwh", horizon=horizon
-        )
+        ep = get_forecasts(df=prices, h=t, fc_type="ep", horizon=horizon)
 
         # gets a set_point for the next interval based on the MPC optimization
         # the horizon of the optimization is given by the length of the forecast
-        set_point = optimizer_step(
+        set_point = run_opt(
             load_forecast=load,
             prices=ep,
             bss_energy=energy_in_the_battery,
@@ -189,7 +214,7 @@ def run_operations(
 
         # implement set point in time, calculate net and tier load
         set_point_time = t + timedelta(hours=1)
-        net_load = fc.loc[set_point_time]["Actual load (kW)"] + set_point["bss_p_ch"]
+        net_load = fc.loc[set_point_time]["Ground Truth"] + set_point["bss_p_ch"]
         tier1_load = (
             net_load if net_load <= tier_load_magnitude else tier_load_magnitude
         )
@@ -216,80 +241,90 @@ def run_operations(
     return pd.DataFrame(operations).T
 
 
-def run_mpc(spatial_scale, location):
+def scale_by_gt(df):
+    """Scale the predictions and ground truth by the max and min of the ground truth"""
+
+    gt_max = df["Ground Truth"].max()
+    gt_min = df["Ground Truth"].min()
+
+    df_scaled = df.copy()
+    df_scaled["Ground Truth"] = (df_scaled["Ground Truth"] - gt_min) / (gt_max - gt_min)
+
+    for col in df_scaled.columns:
+        if col != "Ground Truth":
+            df_scaled[col] = (df_scaled[col] - gt_min) / (gt_max - gt_min)
+
+    return df_scaled, gt_max, gt_min
+
+
+def generate_ep_profile(df, hour_shift=1, mu=0.05, sigma=0.1):
+    """Generate electricity price profiles based on the ground truth of the load"""
+
+    timesteps_per_hour = int(infer_frequency(df) // 60)
+    shift_in_timesteps = hour_shift * timesteps_per_hour
+    # step 1: shift the ground truth by n hours
+    ep1 = df["Ground Truth"].shift(shift_in_timesteps)
+
+    # step 2: add a random noise to it
+    ep2 = ep1 + np.random.normal(mu, sigma, len(ep1))
+    # step 3: smooth it
+    ep3 = ep2.ewm(span=timesteps_per_hour * 6).mean().fillna(method="bfill")
+    ep4 = ep3.to_frame("ep")
+    return ep4
+
+
+def run_mpc(df_fc):
     ##############################################
     # input parameters
     #############################################
 
-    # parameters of the optimization
+    hours_of_simulation = 600
+
+    timesteps_per_hour = infer_frequency(df_fc)
+    df_scaled, gt_max, gt_min = scale_by_gt(df_fc)
+
+    # battery parameters
     initial_soc = 0.5  # initial state of charge of the battery (no unit)
-    bat_size_kwh = 8  # size of the battery in kWh
-    bat_duration = 2  # battery duration (Max_kW = bat_size/duration)
+    bat_size_kwh = 2 * timesteps_per_hour  # size of the battery in kWh
+    c_rate = 0.5  # C-rate of the battery
+    bat_duration = (
+        c_rate * bat_size_kwh
+    )  # battery duration (Max_kW = bat_size/duration)
     bat_efficiency = 0.95  # charging and discharging efficiency of the battery
+
+    # electricity price parameters
+    tier_limit = df_scaled["Ground Truth"].quantile(0.95)
+    ep = generate_ep_profile(df=df_scaled)
     tier2_cost_multiplier = 1.5  # cost multiplication of the tier 2 load
     cost_of_peak = 5.0  # cost of the monthly peak
 
-    hours_of_simulation = 600
-
-    # type of forecasts to evaluation and corresponding horizon in hours
-    fc_types = {
-        "XGBModel_4 Hours Ahead (kW)": 4,
-        # "XGBModel_8 Hours Ahead (kW)": 8,
-        # "NBEATSModel_4 Hours Ahead (kW)": 4,
-        # "NBEATSModel_8 Hours Ahead (kW)": 8,
-        # "Actual load (kW)_4": 4,
-        # "Actual load (kW)_8": 8,
-    }
-
-    # read raw forecasts and calculate the average load
-    fc = pd.read_csv(
-        os.path.join(
-            repository_dir, f"data/results/{spatial_scale}/{location}/forecasts.csv"
-        ),
-        index_col=0,
-        parse_dates=True,
-    )
-
-    # tier load magnitude is equal to the average load (any other value works)
-    tier_load_magnitude = fc["Actual load (kW)"].mean()
-
-    # read electricity prices
-
-    ep = pd.read_csv(
-        os.path.join(
-            repository_dir,
-            f"data/results/{spatial_scale}/{location}/prices.csv",
-        ),
-        index_col=0,
-        parse_dates=True,
-    )
+    fc_types = construct_fc_types(df_fc=df_scaled)
 
     ##############################################
     # simulation starts here
     ##############################################
-
     results = pd.DataFrame()
-    for fc_type in fc_types.keys():
+    for fc_type, horizon in fc_types.items():
         print(f"running {fc_type}")
 
         fc_result = run_operations(
             hours_of_simulation=hours_of_simulation,
-            fc=fc,  # forecast table
+            fc=df_scaled,  # forecast table
             fc_type=fc_type,  # label of forecast type
             prices=ep,  # electricity prices
-            horizon=fc_types[fc_type],
+            horizon=horizon,
             bat_size_kwh=bat_size_kwh,
             bat_duration=bat_duration,
             initial_soc=initial_soc,
             bss_eff=bat_efficiency,
-            tier_load_magnitude=tier_load_magnitude,
+            tier_load_magnitude=tier_limit,
             tier2_multiplier=tier2_cost_multiplier,
             peak_cost=cost_of_peak,
         )
 
         # add the forecast label to the forecast operation results
         for k in fc_result:
-            fc_result[k + f"_{fc_type}"] = fc_result[k]
+            fc_result[k + f"_{fc_type}"] = fc_result[k]  # type: ignore
             fc_result = fc_result.drop(k, axis=1)
 
         # build the operation results table
@@ -300,16 +335,12 @@ def run_mpc(spatial_scale, location):
 
     # calculate operation costs of each forecast
     cost_results = {}
-    results = results.join(fc[["Actual load (kW)"]]).join(ep[["energy_prices_dol_kwh"]])
+    results = results.join(df_scaled[["Ground Truth"]]).join(ep)
     for fc_type in fc_types.keys():
-        tier1 = (
-            results[f"opr_tier1_load_{fc_type}"] * results["energy_prices_dol_kwh"]
-        ).sum()
+        tier1 = (results[f"opr_tier1_load_{fc_type}"] * results["ep"]).sum()
 
         tier2 = (
-            results[f"opr_tier2_load_{fc_type}"]
-            * results["energy_prices_dol_kwh"]
-            * tier2_cost_multiplier
+            results[f"opr_tier2_load_{fc_type}"] * results["ep"] * tier2_cost_multiplier
         ).sum()
 
         peak = results[f"opr_net_load_{fc_type}"].max() * cost_of_peak
@@ -327,19 +358,39 @@ def run_mpc(spatial_scale, location):
         )
     cost_results = pd.DataFrame(cost_results).T
 
-    # write results
-    cost_results.to_csv("cost_results.csv")
-    results.to_csv("operation_results.csv")
+    cost_results.to_csv(os.path.join(repository_dir, "data", "results", "costs.csv"))
+    results.to_csv(os.path.join(repository_dir, "data", "results", "results.csv"))
 
 
 def main():
     parser = argparse.ArgumentParser(description="Run MPC")
-    parser.add_argument("--spatial_scale", type=str, help="Spatial scale")
-    parser.add_argument("--location", type=str, help="Location")
-
+    parser.add_argument("--run", type=str, help="Spatial scale and location")
+    parser.add_argument("--season", type=str, help="Winter or summer")
     args = parser.parse_args()
 
-    run_mpc(spatial_scale=args.spatial_scale, location=args.location)
+    # load data
+
+    # Initialize your project
+    api = wandb.Api()
+    runs = api.runs("Wattcast")
+
+    name_id_dict = get_run_name_id_dict(runs)
+
+    files = get_file_names(project_name, name_id_dict, args.run, args.season)
+
+    side_by_side_plots_dict = download_plotly_plots(get_latest_plotly_plots(files))
+
+    df_all = side_by_side_df(side_by_side_plots_dict)
+
+    df_fc = df_all.iloc[:, -3:]
+
+    # df_fc = pd.read_csv(
+    #     os.path.join(repository_dir, "data", "results", "fc.csv"),
+    #     index_col=0,
+    #     parse_dates=True,
+    # )
+
+    run_mpc(df_fc)
 
 
 if __name__ == "__main__":

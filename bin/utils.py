@@ -14,7 +14,6 @@ import holidays
 from scipy.stats import boxcox
 from scipy.signal import find_peaks_cwt
 from scipy.spatial.distance import euclidean
-from tslearn.metrics import dtw
 from sklearn.metrics import mean_absolute_error, mean_squared_error, make_scorer
 from sklearn.preprocessing import MinMaxScaler
 import requests
@@ -25,6 +24,7 @@ from darts.models import LinearRegressionModel
 from darts.utils.missing_values import fill_missing_values
 import h5py
 from joblib import dump, load
+import wandb
 
 
 model_dir = os.path.join(os.path.dirname(os.getcwd()), "models")
@@ -616,22 +616,6 @@ def inverse_boxcox_transform(dataframe, lam):
     return transformed_dataframe
 
 
-def dtw_distance_matrix(df):
-    "Calculate the pairwise DTW distance matrix of a dataframe"
-    num_cols = df.shape[1]
-    dtw_matrix = pd.DataFrame(index=df.columns, columns=df.columns)
-
-    for i in range(num_cols):
-        for j in range(i, num_cols):
-            ts1 = df.iloc[:, i].values.reshape(-1, 1)
-            ts2 = df.iloc[:, j].values.reshape(-1, 1)
-            dtw_dist = dtw(ts1, ts2)
-            dtw_matrix.iloc[i, j] = dtw_dist
-            dtw_matrix.iloc[j, i] = dtw_dist
-
-    return dtw_matrix
-
-
 def concat_and_scale(df_ap, similar_pair):
     """This function takes in the dataframe with all the apartments and the pair of similar apartments"""
     df_ap_1 = df_ap[similar_pair[0]].to_frame("apartment_demand_W")
@@ -718,7 +702,10 @@ def peak_error(preds, dtest):
 rmse_scorer = make_scorer(mean_squared_error, greater_is_better=False)
 
 
-# results analysis
+# results analysis / wandb api interaction
+
+
+api = wandb.Api()
 
 
 def choose_more_recent(file1, file2):
@@ -731,6 +718,15 @@ def choose_more_recent(file1, file2):
 def check_if_same_horizon_plot(file1, file2):
     if file1._attrs["name"].split("_")[-2] == file2._attrs["name"].split("_")[-2]:
         return True
+
+
+def get_file_names(project_name, name_id_dict, run_to_visualize, season):
+    run = api.run(f"wattcast/{project_name}/{name_id_dict[run_to_visualize]}")
+    files = []
+    for file in run.files():
+        if "Side" in str(file) and season in str(file):
+            files.append(file)
+    return files
 
 
 def get_latest_plotly_plots(files):
@@ -775,3 +771,53 @@ def make_df_from_plot(plot):
         df_line = df_line[[col_name]]
         df = pd.concat([df, df_line], axis=1)
     return df
+
+
+def side_by_side_df(side_by_side_plots_dict):
+    df_all = pd.DataFrame()
+    for name, plot in side_by_side_plots_dict.items():
+        df = make_df_from_plot(plot)
+        df.columns = [col + " " + name for col in df.columns]
+        df_all = pd.concat([df_all, df], axis=1)
+
+    df_all.index = pd.to_datetime(df_all.index)
+    df_gt = df_all.filter(like="Ground").iloc[:, :1]
+    df_gt.columns = ["Ground Truth"]
+    df_all.dropna(inplace=True)
+    # drop column if contains 'Ground' or 'temperature', we will add the ground truth back in below
+    df_all = df_all.loc[:, ~df_all.columns.str.contains("Ground")]
+    df_all = df_all.loc[:, ~df_all.columns.str.contains("temperature")]
+    df_all = df_all.join(df_gt)  # add ground truth back in
+
+    return df_all
+
+
+def get_best_model_per_scale_and_horizon(df, metric):
+    """
+    Gets the model with the best performance for each scale and horizon based in a pd.DataFrame with the error scores of the models,
+    based on the metric specified.
+    """
+    df_sorted = df.sort_values(
+        by=["scale", metric], ascending=False if metric == "rmse_skill_score" else True
+    )
+    df_sorted = df_sorted.drop_duplicates(
+        subset=["scale", "horizon_in_hours"], keep="first"
+    )
+    df_sorted = df_sorted.sort_values(by=["scale", "horizon_in_hours"])
+    df_sorted = df_sorted.reset_index(drop=True).sort_values(
+        by=["scale", "horizon_in_hours"]
+    )
+    return df_sorted
+
+
+def get_run_name_id_dict(runs):
+    """Loops through all runs and returns a dictionary of run names and ids"""
+    name_id_dict = {}
+    for run_ in runs:
+        l = run_.name.split("_")[:-1]
+        l.insert(2, "in")
+        n = "_".join(l)
+        # remove the _ around in
+        n = n.replace("_in_", "in")
+        name_id_dict[n] = run_.id
+    return name_id_dict
