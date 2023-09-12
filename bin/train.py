@@ -43,13 +43,12 @@ from darts.models import (
 )
 
 
-from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 
-dir_path = os.path.join(os.path.dirname(os.getcwd()), "data", "clean_data")
-
+root_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+dir_path = os.path.join(root_path, "data", "clean_data")
 
 class Config:
     """
@@ -435,28 +434,28 @@ def data_pipeline(config):
 
     # into darts format
     ts_train = darts.TimeSeries.from_dataframe(
-        df_train, freq=str(config.temp_resolution) + "min"
+        df_train, freq=str(config.temp_resolution) + "min" # type: ignore
     )
     ts_train = extract_subseries(ts_train)
     ts_val = darts.TimeSeries.from_dataframe(
-        df_val, freq=str(config.temp_resolution) + "min"
+        df_val, freq=str(config.temp_resolution) + "min" # type: ignore
     )
     ts_val = extract_subseries(ts_val)
     ts_test = darts.TimeSeries.from_dataframe(
-        df_test, freq=str(config.temp_resolution) + "min"
+        df_test, freq=str(config.temp_resolution) + "min"   # type: ignore
     )
     ts_test = extract_subseries(ts_test)
 
     # Covariates
     if config.weather:
         ts_cov_train = darts.TimeSeries.from_dataframe(
-            df_cov_train, freq=str(config.temp_resolution) + "min"
+            df_cov_train, freq=str(config.temp_resolution) + "min" # type: ignore
         )
         ts_cov_val = darts.TimeSeries.from_dataframe(
-            df_cov_val, freq=str(config.temp_resolution) + "min"
+            df_cov_val, freq=str(config.temp_resolution) + "min"    # type: ignore
         )
         ts_cov_test = darts.TimeSeries.from_dataframe(
-            df_cov_test, freq=str(config.temp_resolution) + "min"
+            df_cov_test, freq=str(config.temp_resolution) + "min"   # type: ignore
         )
     else:
         ts_cov_train = None
@@ -603,8 +602,8 @@ def training(scale, location):
             "Wattcast_tuning", "+eval_loss", model, scale, location
         )
         print(f"Fetch sweep with name {name} for model {model}")
-        config["horizon_in_hours"] = 48
-        config["location"] = location
+        config["horizon_in_hours"] = 48                                 # type: ignore
+        config["location"] = location                                   # type: ignore
         config_per_model[model] = config, name
 
     name_id = scale + "_" + location + "_" + str(resolution) + "min"
@@ -631,7 +630,7 @@ def training(scale, location):
 
     if len(model_instances) > 0:
         just_trained_models, run_times = train_models(
-            model_instances.values(),
+            model_instances.values(),                       # type: ignore
             ts_train_piped,
             ts_train_weather_piped if config.weather else None,
             ts_val_piped,
@@ -654,3 +653,13 @@ def training(scale, location):
     wandb.config.update(config.data)
 
     return config, models_dict
+
+
+if __name__ == "__main__":
+    
+    wandb.login()
+    scale = '1_county'
+    location = 'Los_Angeles'
+    config, models_dict = training(scale, location)
+
+    wandb.finish()

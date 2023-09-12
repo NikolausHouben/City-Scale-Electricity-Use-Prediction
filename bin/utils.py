@@ -27,8 +27,8 @@ from joblib import dump, load
 import wandb
 
 
-model_dir = os.path.join(os.path.dirname(os.getcwd()), "models")
-
+root_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+model_dir = os.path.join(root_path, "models")
 
 def calculate_stats_and_plot_hist(df):
     scaler = MinMaxScaler()
