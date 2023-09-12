@@ -246,6 +246,12 @@ def predict_testset(model, ts, ts_covs, n_lags, n_ahead, eval_stride, pipeline):
 
 
 def evaluate(config, models_dict):
+
+    '''
+        Loads existing run results (from wandb, TODO) if they exist, 
+        otherwise runs a backtest for each model on the val and test set, and then formats it into the various horizons
+        
+    '''
     (
         pipeline,
         ts_train_piped,
@@ -264,14 +270,14 @@ def evaluate(config, models_dict):
             ts_val_piped[config.longest_ts_val_idx],
             None
             if not config.weather
-            else ts_val_weather_piped[config.longest_ts_val_idx],
+            else ts_val_weather_piped[config.longest_ts_val_idx], # type: ignore
             trg_val_inversed,
         ),
         "Summer": (
             ts_test_piped[config.longest_ts_test_idx],
             None
             if not config.weather
-            else ts_test_weather_piped[config.longest_ts_test_idx],
+            else ts_test_weather_piped[config.longest_ts_test_idx], # type: ignore
             trg_test_inversed,
         ),
     }
@@ -327,7 +333,7 @@ def backtesting(models_dict, pipeline, test_sets, config):
 def extract_forecasts_per_horizon(config, dict_result_season):
     n_aheads = [
         i * config.timesteps_per_hour for i in [1, 4, 8, 24, 48]
-    ]  # horizon in hours
+    ]  # horizons in hours are then multiplied by the timesteps per hour to get the horizons in timesteps
     dict_result_n_ahead = {}
 
     for n_ahead in n_aheads:
@@ -354,6 +360,7 @@ def extract_forecasts_per_horizon(config, dict_result_season):
 
 
 def get_run_results(dict_result_n_ahead, config):
+    
     df_metrics = error_metrics_table(dict_result_n_ahead, config)
 
     side_by_side(dict_result_n_ahead, config)
@@ -385,9 +392,7 @@ def error_metrics_table(dict_result_n_ahead, config):
     for n_ahead, dict_result_season in dict_result_n_ahead.items():
         for season, (_, preds_per_model, gt) in dict_result_season.items():
             df_metrics = get_error_metric_table(list_metrics, preds_per_model, gt)
-            rmse_persistence = df_metrics.loc[
-                df_metrics.index == "24-Hour Persistence", "rmse"
-            ].values[0]
+            rmse_persistence = df_metrics.iloc[[-1], :]['rmse'].values[0] # the last row is the X-hour persistence model specified in the training
             df_metrics.drop(labels=[config.model_names[-1]], axis=0, inplace=True)
             df_metrics.reset_index(inplace=True)
             df_metrics["season"] = season
@@ -402,7 +407,11 @@ def error_metrics_table(dict_result_n_ahead, config):
     df_metrics = pd.concat(metrics_tables, axis=0, ignore_index=True).sort_values(
         by=["season", "horizon_in_hours"]
     )
-    wandb.log({f"Error metrics": wandb.Table(dataframe=df_metrics)})
+    try:
+        wandb.log({f"Error metrics": wandb.Table(dataframe=df_metrics)})
+    except:
+        print("Wandb is not initialized, skipping logging")
+
 
     return df_metrics
 
@@ -470,11 +479,15 @@ def side_by_side(dict_result_n_ahead, config):
                 yaxis2=dict(title="Temperature [°C]", overlaying="y", side="right"),
             )
 
-            wandb.log(
-                {
-                    f"{season} - Side-by-side comparison of predictions and the ground truth": fig
-                }
-            )
+            try:
+                wandb.log(
+                    {
+                        f"{season} - Side-by-side comparison of predictions and the ground truth": fig
+                    }
+                )
+            except:
+                print("Wandb is not initialized, skipping logging")
+                fig.show()
 
 
 def error_metric_trajectory(dict_result_n_ahead, config):
@@ -518,7 +531,11 @@ def error_metric_trajectory(dict_result_n_ahead, config):
         plt.title(
             f"Mean Absolute Percentage Error of the Historical Forecasts in {season}"
         )
-        wandb.log({f"MAPE of the Historical Forecasts in {season}": wandb.Image(fig)})
+        try:
+            wandb.log({f"MAPE of the Historical Forecasts in {season}": wandb.Image(fig)})
+        except:
+            print("Wandb is not initialized, skipping logging")
+            plt.show()
 
     for season in dict_result_season.keys():
         fig = df_nrmse_per_season[season].plot(figsize=(10, 5))
@@ -527,7 +544,13 @@ def error_metric_trajectory(dict_result_n_ahead, config):
         plt.xticks(np.arange(0, n_ahead, 2))
         plt.legend(loc="upper left", ncol=2)
         plt.title(f"Root Mean Squared Error of the Historical Forecasts in {season}")
-        wandb.log({f"RMSE of the Historical Forecasts in {season}": wandb.Image(fig)})
+        try:
+            wandb.log({f"RMSE of the Historical Forecasts in {season}": wandb.Image(fig)})
+        except:
+            print("Wandb is not initialized, skipping logging")
+            plt.show()
+
+
 
 
 def error_distribution(dict_result_n_ahead, config):
@@ -552,13 +575,17 @@ def error_distribution(dict_result_n_ahead, config):
             ax[i].hist(diffs_flat, bins=100)
             ax[i].set_title(model_name)
 
-        wandb.log(
-            {
-                f"Error Distribution of the Historical Forecasts in {season}": wandb.Image(
-                    fig
-                )
-            }
-        )
+        try:
+            wandb.log(
+                {
+                    f"Error Distribution of the Historical Forecasts in {season}": wandb.Image(
+                        fig
+                    )
+                }
+            )
+        except:
+            print("Wandb is not initialized, skipping logging")
+            plt.show()
 
 
 def daily_sum(dict_result_n_ahead, config):
@@ -569,7 +596,7 @@ def daily_sum(dict_result_n_ahead, config):
         dfs_daily_sums = []
         for model_name, preds in preds_per_model.items():
             df_preds = preds.pd_series().to_frame(model_name + "_preds")
-            z = df_preds.groupby(df_preds.index.date).sum()
+            z = df_preds.groupby(df_preds.index.date).sum() / config.timesteps_per_hour
             dfs_daily_sums.append(z)
 
         df_gt = gt.pd_series().to_frame("ground_truth")
@@ -580,10 +607,15 @@ def daily_sum(dict_result_n_ahead, config):
         plt.legend(loc="upper right", ncol=2)
         plt.ylabel(f"Energy [{config.unit}h]")
         plt.title(f"Daily Sum of the Predictions and the Ground Truth in {season}")
-        wandb.log(
-            {
-                f"Daily Sum of the Predictions and the Ground Truth in {season}": wandb.Image(
-                    fig
-                )
-            }
-        )
+        
+        try:
+            wandb.log(
+                {
+                    f"Daily Sum of the Predictions and the Ground Truth in {season}": wandb.Image(
+                        fig
+                    )
+                }
+            )
+        except:
+            print("Wandb is not initialized, skipping logging")
+            plt.show()

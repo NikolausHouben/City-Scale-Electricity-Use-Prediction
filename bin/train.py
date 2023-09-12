@@ -581,15 +581,18 @@ def train_models(
 
 
 def training(scale, location):
+
+    '''Loads existing models (from disk) if they exist, otherwise trains new models with optimial hyperparameters (from wandb) if they exist'''
+
     units_dict = {"county": "GW", "town": "MW", "village": "kW", "neighborhood": "kW"}
 
     tuned_models = [
-        "rf",
+        #"rf",
         "lgbm",
-        "xgb",
-        "gru",
-        "nbeats",
-        'tft'
+        #"xgb",
+        #"gru",
+        #"nbeats",
+        #'tft'
     ]
 
     resolution = 60
@@ -599,6 +602,7 @@ def training(scale, location):
         config, name = get_best_run_config(
             "Wattcast_tuning", "+eval_loss", model, scale, location
         )
+        print(f"Fetch sweep with name {name} for model {model}")
         config["horizon_in_hours"] = 48
         config["location"] = location
         config_per_model[model] = config, name
