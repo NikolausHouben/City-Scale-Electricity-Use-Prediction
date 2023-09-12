@@ -130,11 +130,13 @@ def get_model_instances(tuned_models, config_per_model):
 
 
 def get_model(config):
-    """Returns model instance, based on the config."""
+    """Returns model instance, based on the models specified in the config."""
 
     model = config.model
 
     # for torch models
+
+    # ----------------- #
 
     optimizer_kwargs = {}
     try:
@@ -151,6 +153,7 @@ def get_model(config):
     }
 
     schedule_kwargs = {"patience": 2, "factor": 0.5, "min_lr": 1e-5, "verbose": True}
+    # ----------------- #
 
     if model == "xgb":
         try:
@@ -419,7 +422,7 @@ def data_pipeline(config):
         key=f"{config.location}/{config.temp_resolution}min/test_cov",
     )
 
-    # Heat wave covariatem, categorical variable
+    # Heat wave covariate, categorical variable
     df_cov_train["heat_wave"] = df_cov_train[df_cov_train.columns[0]] > df_cov_train[
         df_cov_train.columns[0]
     ].quantile(0.95)
@@ -471,7 +474,8 @@ def data_pipeline(config):
         ts_test, config.n_lags + config.n_ahead, ts_cov_test
     )
 
-    # getting the index of the longest subseries, to be used for evaluation later
+    # getting the index of the longest subseries, to be used for evaluation later, 
+    # TODO: remove this so all of the data is used for evaluation
     config.longest_ts_val_idx = get_longest_subseries_idx(ts_val)
     config.longest_ts_test_idx = get_longest_subseries_idx(ts_test)
 
@@ -529,7 +533,13 @@ def train_models(
     ts_val_weather_piped=None,
     use_cov_as_past=False,
 ):
-    """This function trains a list of models on the training data and validates them on the validation data if it is possible."""
+    """
+    This function does the actual training and is used by 'training'.
+    Takes in a list of models on the training data and validates them on the validation data if it is available.
+
+    Returns the trained models and the runtimes.
+        
+    """
 
     run_times = {}
 
@@ -567,37 +577,6 @@ def train_models(
     return models, run_times
 
 
-def predict_testset(model, ts, ts_covs, n_lags, n_ahead, eval_stride, pipeline):
-    """
-    This function predicts the test set using a model and returns the predictions as a dataframe. Used in hyperparameter tuning.
-    """
-
-    print("Predicting test set...")
-
-    historics = model.historical_forecasts(
-        ts,
-        future_covariates=ts_covs if model.supports_future_covariates else None,
-        start=ts.get_index_at_point(n_lags),
-        verbose=False,
-        stride=eval_stride,
-        forecast_horizon=n_ahead,
-        retrain=False,
-        last_points_only=False,  # leave this as False unless you want the output to be one series, the rest will not work with this however
-    )
-
-    historics_gt = [ts.slice_intersect(historic) for historic in historics]
-    score = np.array(rmse(historics_gt, historics)).mean()
-
-    ts_predictions = ts_list_concat(
-        historics, eval_stride
-    )  # concatenating the batches into a single time series for plot 1, this keeps the n_ahead
-    ts_predictions_inverse = pipeline.inverse_transform(
-        ts_predictions
-    )  # inverse transform the predictions, we need the original values for the evaluation
-
-    return ts_predictions_inverse.pd_series().to_frame("prediction"), score
-
-
 # experiments
 
 
@@ -610,8 +589,7 @@ def training(scale, location):
         "xgb",
         "gru",
         "nbeats",
-        #  'transformer'
-        #  'tft'
+        'tft'
     ]
 
     resolution = 60

@@ -14,225 +14,23 @@ from darts.logging import get_logger, raise_if_not, raise_log
 from darts.utils import _build_tqdm_iterator, _parallel_apply
 from darts.metrics import rmse, mse, mape, mae, r2_score, smape
 from darts import TimeSeries
+from darts.metrics.metrics import multivariate_support, multi_ts_support, _get_values, _get_values_or_raise
 
 from utils import (
     make_index_same,
     ts_list_concat_new,
     get_df_diffs,
     get_df_compares_list,
+    ts_list_concat
 )
 
+from train import data_pipeline
 
 dir_path = os.path.join(os.path.dirname(os.getcwd()), "data", "clean_data")
 
 
 logger = get_logger(__name__)
 
-
-def multi_ts_support(func):
-    """
-    This decorator further adapts the metrics that took as input two univariate/multivariate ``TimeSeries`` instances,
-    adding support for equally-sized sequences of ``TimeSeries`` instances. The decorator computes the pairwise metric
-    for ``TimeSeries`` with the same indices, and returns a float value that is computed as a function of all the
-    pairwise metrics using a `inter_reduction` subroutine passed as argument to the metric function.
-
-    If a 'Sequence[TimeSeries]' is passed as input, this decorator provides also parallelisation of the metric
-    evaluation regarding different ``TimeSeries`` (if the `n_jobs` parameter is not set 1).
-    """
-
-    @wraps(func)
-    def wrapper_multi_ts_support(*args, **kwargs):
-        actual_series = (
-            kwargs["actual_series"] if "actual_series" in kwargs else args[0]
-        )
-        pred_series = (
-            kwargs["pred_series"]
-            if "pred_series" in kwargs
-            else args[0]
-            if "actual_series" in kwargs
-            else args[1]
-        )
-
-        n_jobs = kwargs.pop("n_jobs", signature(func).parameters["n_jobs"].default)
-        verbose = kwargs.pop("verbose", signature(func).parameters["verbose"].default)
-
-        raise_if_not(isinstance(n_jobs, int), "n_jobs must be an integer")
-        raise_if_not(isinstance(verbose, bool), "verbose must be a bool")
-
-        actual_series = (
-            [actual_series]
-            if not isinstance(actual_series, Sequence)
-            else actual_series
-        )
-        pred_series = (
-            [pred_series] if not isinstance(pred_series, Sequence) else pred_series
-        )
-
-        raise_if_not(
-            len(actual_series) == len(pred_series),
-            "The two TimeSeries sequences must have the same length.",
-            logger,
-        )
-
-        num_series_in_args = int("actual_series" not in kwargs) + int(
-            "pred_series" not in kwargs
-        )
-        kwargs.pop("actual_series", 0)
-        kwargs.pop("pred_series", 0)
-
-        iterator = _build_tqdm_iterator(
-            iterable=zip(actual_series, pred_series),
-            verbose=verbose,
-            total=len(actual_series),
-        )
-
-        value_list = _parallel_apply(
-            iterator=iterator,
-            fn=func,
-            n_jobs=n_jobs,
-            fn_args=args[num_series_in_args:],
-            fn_kwargs=kwargs,
-        )
-
-        # in case the reduction is not reducing the metrics sequence to a single value, e.g., if returning the
-        # np.ndarray of values with the identity function, we must handle the single TS case, where we should
-        # return a single value instead of a np.array of len 1
-
-        if len(value_list) == 1:
-            value_list = value_list[0]
-
-        if "inter_reduction" in kwargs:
-            return kwargs["inter_reduction"](value_list)
-        else:
-            return signature(func).parameters["inter_reduction"].default(value_list)
-
-    return wrapper_multi_ts_support
-
-
-def multivariate_support(func):
-    """
-    This decorator transforms a metric function that takes as input two univariate TimeSeries instances
-    into a function that takes two equally-sized multivariate TimeSeries instances, computes the pairwise univariate
-    metrics for components with the same indices, and returns a float value that is computed as a function of all the
-    univariate metrics using a `reduction` subroutine passed as argument to the metric function.
-    """
-
-    @wraps(func)
-    def wrapper_multivariate_support(*args, **kwargs):
-        # we can avoid checks about args and kwargs since the input is adjusted by the previous decorator
-        actual_series = args[0]
-        pred_series = args[1]
-
-        raise_if_not(
-            actual_series.width == pred_series.width,
-            "The two TimeSeries instances must have the same width.",
-            logger,
-        )
-
-        value_list = []
-        for i in range(actual_series.width):
-            value_list.append(
-                func(
-                    actual_series.univariate_component(i),
-                    pred_series.univariate_component(i),
-                    *args[2:],
-                    **kwargs,
-                )
-            )  # [2:] since we already know the first two arguments are the series
-        if "reduction" in kwargs:
-            return kwargs["reduction"](value_list)
-        else:
-            return signature(func).parameters["reduction"].default(value_list)
-
-    return wrapper_multivariate_support
-
-
-def _get_values(
-    series: TimeSeries, stochastic_quantile: Optional[float] = 0.5
-) -> np.ndarray:
-    """
-    Returns the numpy values of a time series.
-    For stochastic series, return either all sample values with (stochastic_quantile=None) or the quantile sample value
-    with (stochastic_quantile {>=0,<=1})
-    """
-    if series.is_deterministic:
-        series_values = series.univariate_values()
-    else:  # stochastic
-        if stochastic_quantile is None:
-            series_values = series.all_values(copy=False)
-        else:
-            series_values = series.quantile_timeseries(
-                quantile=stochastic_quantile
-            ).univariate_values()
-    return series_values
-
-
-def _get_values_or_raise(
-    series_a: TimeSeries,
-    series_b: TimeSeries,
-    intersect: bool,
-    stochastic_quantile: Optional[float] = 0.5,
-    remove_nan_union: bool = False,
-) -> Tuple[np.ndarray, np.ndarray]:
-    """Returns the processed numpy values of two time series. Processing can be customized with arguments
-    `intersect, stochastic_quantile, remove_nan_union`.
-
-    Raises a ValueError if the two time series (or their intersection) do not have the same time index.
-
-    Parameters
-    ----------
-    series_a
-        A univariate deterministic ``TimeSeries`` instance (the actual series).
-    series_b
-        A univariate (deterministic or stochastic) ``TimeSeries`` instance (the predicted series).
-    intersect
-        A boolean for whether or not to only consider the time intersection between `series_a` and `series_b`
-    stochastic_quantile
-        Optionally, for stochastic predicted series, return either all sample values with (`stochastic_quantile=None`)
-        or any deterministic quantile sample values by setting `stochastic_quantile=quantile` {>=0,<=1}.
-    remove_nan_union
-        By setting `remove_non_union` to True, remove all indices from `series_a` and `series_b` which have a NaN value
-        in either of the two input series.
-    """
-
-    raise_if_not(
-        series_a.width == series_b.width,
-        "The two time series must have the same number of components",
-        logger,
-    )
-
-    raise_if_not(isinstance(intersect, bool), "The intersect parameter must be a bool")
-
-    series_a_common = series_a.slice_intersect(series_b) if intersect else series_a
-    series_b_common = series_b.slice_intersect(series_a) if intersect else series_b
-
-    raise_if_not(
-        series_a_common.has_same_time_as(series_b_common),
-        "The two time series (or their intersection) "
-        "must have the same time index."
-        "\nFirst series: {}\nSecond series: {}".format(
-            series_a.time_index, series_b.time_index
-        ),
-        logger,
-    )
-
-    series_a_det = _get_values(series_a_common, stochastic_quantile=stochastic_quantile)
-    series_b_det = _get_values(series_b_common, stochastic_quantile=stochastic_quantile)
-
-    if not remove_nan_union:
-        return series_a_det, series_b_det
-
-    b_is_deterministic = bool(len(series_b_det.shape) == 1)
-    if b_is_deterministic:
-        isnan_mask = np.logical_or(np.isnan(series_a_det), np.isnan(series_b_det))
-    else:
-        isnan_mask = np.logical_or(
-            np.isnan(series_a_det), np.isnan(series_b_det).any(axis=2).flatten()
-        )
-    return (
-        np.delete(series_a_det, isnan_mask),
-        np.delete(series_b_det, isnan_mask, axis=0),
-    )
 
 
 @multi_ts_support
@@ -287,7 +85,7 @@ def max_peak_error(
     """
 
     y1, y2 = _get_values_or_raise(
-        actual_series, pred_series, intersect, remove_nan_union=True
+        actual_series, pred_series, intersect, remove_nan_union=True # type: ignore
     )
 
     y1_max = np.max(y1)
@@ -350,7 +148,7 @@ def mean_n_peak_error(
     """
 
     y1, y2 = _get_values_or_raise(
-        actual_series, pred_series, intersect, remove_nan_union=True
+        actual_series, pred_series, intersect, remove_nan_union=True # type: ignore
     )
 
     y1_sorted_indices = np.argsort(
@@ -413,7 +211,41 @@ def calc_metrics(df_compare, metrics):
     return df_metrics
 
 
-def evaluation(config, models_dict):
+def predict_testset(model, ts, ts_covs, n_lags, n_ahead, eval_stride, pipeline):
+    """
+    This function predicts the test set using a model and returns the predictions as a dataframe. Used in hyperparameter tuning.
+    """
+
+    print("Predicting test set...")
+
+    historics = model.historical_forecasts(
+        ts,
+        future_covariates=ts_covs if model.supports_future_covariates else None,
+        start=ts.get_index_at_point(n_lags),
+        verbose=False,
+        stride=eval_stride,
+        forecast_horizon=n_ahead,
+        retrain=False,
+        last_points_only=False,  # leave this as False unless you want the output to be one series, the rest will not work with this however
+    )
+
+    historics_gt = [ts.slice_intersect(historic) for historic in historics]
+    score = np.array(rmse(historics_gt, historics)).mean()
+
+    ts_predictions = ts_list_concat(
+        historics, eval_stride
+    )  # concatenating the batches into a single time series for plot 1, this keeps the n_ahead
+    ts_predictions_inverse = pipeline.inverse_transform(
+        ts_predictions
+    )  # inverse transform the predictions, we need the original values for the evaluation
+
+    return ts_predictions_inverse.pd_series().to_frame("prediction"), score
+
+
+
+
+
+def evaluate(config, models_dict):
     (
         pipeline,
         ts_train_piped,
@@ -444,14 +276,20 @@ def evaluation(config, models_dict):
         ),
     }
 
-    dict_result_season = _eval(models_dict, pipeline, test_sets, config)
+    dict_result_season = backtesting(models_dict, pipeline, test_sets, config)
 
     dict_result_n_ahead = extract_forecasts_per_horizon(config, dict_result_season)
 
     return dict_result_n_ahead
 
 
-def _eval(models_dict, pipeline, test_sets, config):
+def backtesting(models_dict, pipeline, test_sets, config):
+    '''
+    This function runs the backtesting used in the 'evaluate' function.
+    Takes in models, runs them on on the test sets (summer & winter) 
+    and returns the predictions and the ground truth in a dictionary for each model, and season
+    
+    '''
     dict_result_season = {}
     for season, (ts, ts_cov, gt) in test_sets.items():
         print(f"Testing on {season} data")
@@ -585,7 +423,7 @@ def side_by_side(dict_result_n_ahead, config):
         key=f"{config.location}/{config.temp_resolution}min/test_cov",
     )
 
-    temp_data = {"Summer": df_cov_test.iloc[:, 0], "Winter": df_cov_val.iloc[:, 0]}
+    temp_data = {"Summer": df_cov_test.iloc[:, 0], "Winter": df_cov_val.iloc[:, 0]} # type: ignore
 
     for n_ahead, dict_result_season in dict_result_n_ahead.items():
         for season, (_, preds_per_model, gt) in dict_result_season.items():
@@ -654,7 +492,7 @@ def error_metric_trajectory(dict_result_n_ahead, config):
         for model_name, historics in historics_per_model.items():
             df_list = get_df_compares_list(historics, gt)
             diffs = get_df_diffs(df_list)
-            df_smapes = abs(diffs).mean(axis=1)
+            df_smapes = abs(diffs).mean(axis=1) # type: ignore
             df_smapes.columns = [model_name]
             df_rmse = np.square(diffs).mean(axis=1)
             df_rmse.columns = [model_name]
