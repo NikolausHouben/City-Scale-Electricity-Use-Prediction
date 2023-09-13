@@ -30,6 +30,7 @@ import wandb
 root_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 model_dir = os.path.join(root_path, "models")
 
+
 def calculate_stats_and_plot_hist(df):
     scaler = MinMaxScaler()
     scaled = scaler.fit_transform(df)
@@ -118,7 +119,7 @@ def get_hdf_keys(dir_path):
                 locations = list(f.keys())
                 locations_per_file[file_name] = locations
                 for location in locations:
-                    temporal_resolutions = list(f[location].keys())
+                    temporal_resolutions = list(f[location].keys())  # type: ignore
                     temporal_resolutions_per_file[file_name] = temporal_resolutions
 
     return locations_per_file, temporal_resolutions_per_file
@@ -560,10 +561,10 @@ def timeseries_dataframe_pivot(df):
 
 
 def unpivot_timeseries_dataframe(df: pd.DataFrame, column_name: str = "Q"):
-    df_unstack = df.T.unstack().to_frame().reset_index()
+    df_unstack = df.T.unstack().to_frame().reset_index()  # type: ignore
     df_unstack.columns = ["date", "time", "{}".format(column_name)]
     df_unstack["date_str"] = df_unstack["date"].apply(
-        lambda t: datetime.datetime.strftime(t, format="%Y-%m-%d")
+        lambda t: datetime.datetime.strftime(t, format="%Y-%m-%d")  # type: ignore
     )
     df_unstack["time_str"] = df_unstack["time"].apply(
         lambda t: " {}:{}:{}".format(t.hour, t.minute, t.second)
