@@ -5,6 +5,7 @@ import wandb
 import pandas as pd
 import numpy as np
 import time
+import json
 
 
 import plotly.express as px
@@ -14,13 +15,8 @@ from sklearn.preprocessing import MinMaxScaler, RobustScaler
 from utils import (
     review_subseries,
     get_longest_subseries_idx,
-    ts_list_concat_new,
-    ts_list_concat,
-    make_index_same,
     load_trained_models,
     save_models_to_disk,
-    get_df_compares_list,
-    get_df_diffs,
 )
 
 import darts
@@ -28,9 +24,7 @@ from darts import TimeSeries
 from darts.utils.missing_values import extract_subseries
 from darts.dataprocessing.transformers.boxcox import BoxCox
 from darts.dataprocessing.transformers.scaler import Scaler
-from darts.dataprocessing.transformers.missing_values_filler import MissingValuesFiller
 from darts.dataprocessing import Pipeline
-from darts.metrics import rmse, r2_score, mae, smape, mape
 from darts.models import (
     BlockRNNModel,
     NBEATSModel,
@@ -49,6 +43,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 root_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 dir_path = os.path.join(root_path, "data", "clean_data")
+
 
 class Config:
     """
@@ -103,6 +98,25 @@ class Config:
         return config
 
 
+def initialize_kwargs(config):
+    """Initializes the kwargs for the model with the available wandb sweep config or with the default values."""
+    model = config.model
+
+    try:
+        sweep_path = os.path.join(
+            root_path, "sweep_configurations", f"config_sweep_{model}.json"
+        )
+        with open(sweep_path) as f:
+            sweep_config = json.load(f)["parameters"]
+
+            print(sweep_config)
+        kwargs = {k: config.__getitem__(k) for k in sweep_config.keys()}
+    except:
+        kwargs = {}
+        print("No sweep config found. Using default values.")
+    return kwargs
+
+
 def get_model_instances(tuned_models, config_per_model):
     """Returns a list of model instances for the models that were tuned and appends a linear regression model."""
 
@@ -155,18 +169,7 @@ def get_model(config):
     # ----------------- #
 
     if model == "xgb":
-        try:
-            xgb_kwargs = {
-                "n_estimators": config.n_estimators,
-                "max_depth": config.max_depth,
-                "learning_rate": config.learning_rate,
-                "min_child_weight": config.min_child_weight,
-                "objective": config.objective,
-                "reg_lambda": config.reg_lambda,
-                "early_stopping_rounds": 10,
-            }
-        except:
-            xgb_kwargs = {}
+        xgb_kwargs = initialize_kwargs(config)
 
         model = XGBModel(
             lags=config.n_lags,
@@ -179,19 +182,7 @@ def get_model(config):
         )
 
     elif model == "lgbm":
-        try:
-            lightgbm_kwargs = {
-                "n_estimators": config.n_estimators,
-                "max_depth": config.max_depth,
-                "learning_rate": config.learning_rate,
-                "min_child_weight": config.min_child_weight,
-                "num_leaves": config.num_leaves,
-                "objective": config.objective,
-                "min_child_samples": config.min_child_samples,
-            }
-
-        except:
-            lightgbm_kwargs = {}
+        lightgbm_kwargs = initialize_kwargs(config)
 
         model = LightGBMModel(
             lags=config.n_lags,
@@ -204,16 +195,7 @@ def get_model(config):
         )
 
     elif model == "rf":
-        try:
-            rf_kwargs = {
-                "n_estimators": config.n_estimators,
-                "max_depth": config.max_depth,
-                "min_samples_split": config.min_samples_split,
-                "min_samples_leaf": config.min_samples_leaf,
-            }
-
-        except:
-            rf_kwargs = {}
+        rf_kwargs = initialize_kwargs(config)
 
         model = RandomForest(
             lags=config.n_lags,
@@ -225,19 +207,7 @@ def get_model(config):
         )
 
     elif model == "nbeats":
-        try:
-            nbeats_kwargs = {
-                "batch_size": config.batch_size,
-                "num_stacks": config.num_stacks,
-                "num_blocks": config.num_blocks,
-                "num_layers": config.num_layers,
-                "layer_widths": config.layer_widths,
-                "dropout": config.dropout,
-
-            }
-
-        except:
-            nbeats_kwargs = {}
+        nbeats_kwargs = initialize_kwargs(config)
 
         model = NBEATSModel(
             input_chunk_length=config.n_lags,
@@ -253,15 +223,7 @@ def get_model(config):
         )
 
     elif model == "gru":
-        try:
-            rnn_kwargs = {
-                "hidden_dim": config.hidden_dim,
-                "n_rnn_layers": config.n_rnn_layers,
-                "batch_size": config.batch_size,
-                "dropout": config.dropout,
-            }
-        except:
-            rnn_kwargs = {}
+        rnn_kwargs = initialize_kwargs(config)
 
         model = BlockRNNModel(
             model="GRU",
@@ -278,16 +240,7 @@ def get_model(config):
         )
 
     elif model == "tft":
-        try:
-            transformer_kwargs = {
-                "hidden_size": config.hidden_dim,
-                "lstm_layers": config.n_rnn_layers,
-                "batch_size": config.batch_size,
-                "dropout": config.dropout,
-                "num_attention_heads": config.num_attention_heads,
-            }
-        except:
-            transformer_kwargs = {}
+        tft_kwargs = initialize_kwargs(config)
 
         model = TFTModel(
             input_chunk_length=config.n_lags,
@@ -299,33 +252,7 @@ def get_model(config):
             lr_scheduler_cls=ReduceLROnPlateau,
             lr_scheduler_kwargs=schedule_kwargs,
             random_state=42,
-            **transformer_kwargs,
-        )
-
-    elif model == "transformer":
-        try:
-            transformer_kwargs = {
-                "d_model": config.d_model,
-                "nhead": config.nhead,
-                "num_encoder_layers": config.num_encoder_layers,
-                "num_decoder_layers": config.num_decoder_layers,
-                "batch_size": config.batch_size,
-                "dropout": config.dropout,
-                "num_attention_heads": config.num_attention_heads,
-            }
-        except:
-            transformer_kwargs = {}
-
-        model = TransformerModel(
-            input_chunk_length=config.n_lags,
-            output_chunk_length=config.n_ahead,
-            add_encoders=config.datetime_encoders,
-            likelihood=config.liklihood,
-            pl_trainer_kwargs=pl_trainer_kwargs,
-            optimizer_kwargs=optimizer_kwargs,
-            lr_scheduler_cls=ReduceLROnPlateau,
-            lr_scheduler_kwargs=schedule_kwargs,
-            random_state=42,
+            **tft_kwargs,
         )
 
     else:
@@ -434,28 +361,28 @@ def data_pipeline(config):
 
     # into darts format
     ts_train = darts.TimeSeries.from_dataframe(
-        df_train, freq=str(config.temp_resolution) + "min" # type: ignore
+        df_train, freq=str(config.temp_resolution) + "min"  # type: ignore
     )
     ts_train = extract_subseries(ts_train)
     ts_val = darts.TimeSeries.from_dataframe(
-        df_val, freq=str(config.temp_resolution) + "min" # type: ignore
+        df_val, freq=str(config.temp_resolution) + "min"  # type: ignore
     )
     ts_val = extract_subseries(ts_val)
     ts_test = darts.TimeSeries.from_dataframe(
-        df_test, freq=str(config.temp_resolution) + "min"   # type: ignore
+        df_test, freq=str(config.temp_resolution) + "min"  # type: ignore
     )
     ts_test = extract_subseries(ts_test)
 
     # Covariates
     if config.weather:
         ts_cov_train = darts.TimeSeries.from_dataframe(
-            df_cov_train, freq=str(config.temp_resolution) + "min" # type: ignore
+            df_cov_train, freq=str(config.temp_resolution) + "min"  # type: ignore
         )
         ts_cov_val = darts.TimeSeries.from_dataframe(
-            df_cov_val, freq=str(config.temp_resolution) + "min"    # type: ignore
+            df_cov_val, freq=str(config.temp_resolution) + "min"  # type: ignore
         )
         ts_cov_test = darts.TimeSeries.from_dataframe(
-            df_cov_test, freq=str(config.temp_resolution) + "min"   # type: ignore
+            df_cov_test, freq=str(config.temp_resolution) + "min"  # type: ignore
         )
     else:
         ts_cov_train = None
@@ -473,7 +400,7 @@ def data_pipeline(config):
         ts_test, config.n_lags + config.n_ahead, ts_cov_test
     )
 
-    # getting the index of the longest subseries, to be used for evaluation later, 
+    # getting the index of the longest subseries, to be used for evaluation later,
     # TODO: remove this so all of the data is used for evaluation
     config.longest_ts_val_idx = get_longest_subseries_idx(ts_val)
     config.longest_ts_test_idx = get_longest_subseries_idx(ts_test)
@@ -537,7 +464,7 @@ def train_models(
     Takes in a list of models on the training data and validates them on the validation data if it is available.
 
     Returns the trained models and the runtimes.
-        
+
     """
 
     run_times = {}
@@ -580,17 +507,16 @@ def train_models(
 
 
 def training(scale, location):
-
-    '''Loads existing models (from disk) if they exist, otherwise trains new models with optimial hyperparameters (from wandb) if they exist'''
+    """Loads existing models (from disk) if they exist, otherwise trains new models with optimial hyperparameters (from wandb) if they exist"""
 
     units_dict = {"county": "GW", "town": "MW", "village": "kW", "neighborhood": "kW"}
 
     tuned_models = [
-        #"rf",
+        # "rf",
         "lgbm",
-        #"xgb",
-        #"gru",
-        #"nbeats",
+        # "xgb",
+        # "gru",
+        # "nbeats",
         #'tft'
     ]
 
@@ -602,8 +528,8 @@ def training(scale, location):
             "Wattcast_tuning", "+eval_loss", model, scale, location
         )
         print(f"Fetch sweep with name {name} for model {model}")
-        config["horizon_in_hours"] = 48                                 # type: ignore
-        config["location"] = location                                   # type: ignore
+        config["horizon_in_hours"] = 48  # type: ignore
+        config["location"] = location  # type: ignore
         config_per_model[model] = config, name
 
     name_id = scale + "_" + location + "_" + str(resolution) + "min"
@@ -621,7 +547,7 @@ def training(scale, location):
         ts_test_weather_piped,
         trg_train_inversed,
         trg_val_inversed,
-        trg_test_inversed,
+        trg_test_inersed,
     ) = data_pipeline(config)
 
     model_instances = get_model_instances(tuned_models, config_per_model)
@@ -630,7 +556,7 @@ def training(scale, location):
 
     if len(model_instances) > 0:
         just_trained_models, run_times = train_models(
-            model_instances.values(),                       # type: ignore
+            model_instances.values(),  # type: ignore
             ts_train_piped,
             ts_train_weather_piped if config.weather else None,
             ts_val_piped,
@@ -656,10 +582,8 @@ def training(scale, location):
 
 
 if __name__ == "__main__":
-    
     wandb.login()
-    scale = '1_county'
-    location = 'Los_Angeles'
+    scale = "1_county"
+    location = "Los_Angeles"
     config, models_dict = training(scale, location)
-
     wandb.finish()
