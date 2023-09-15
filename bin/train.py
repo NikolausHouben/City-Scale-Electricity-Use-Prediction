@@ -109,7 +109,6 @@ def initialize_kwargs(config):
         with open(sweep_path) as f:
             sweep_config = json.load(f)["parameters"]
 
-            print(sweep_config)
         kwargs = {k: config.__getitem__(k) for k in sweep_config.keys()}
     except:
         kwargs = {}
@@ -122,13 +121,12 @@ def get_model_instances(tuned_models, config_per_model):
 
     model_instances = {}
     for model in tuned_models:
-        print("getting model instance for " + model)
+        print("Getting model instance for " + model + "...")
         config = Config().from_dict(config_per_model[model][0])
-        print(config)
         model_instances[model] = get_model(config)
 
     # since we did not optimize the hyperparameters for the linear regression model, we need to create a new instance
-    print("getting model instance for linear regression")
+    print("Getting model instance for linear regression...")
     config = Config().from_dict(config_per_model[tuned_models[0]][0])
     lr_model = LinearRegressionModel(
         lags=config.n_lags,
@@ -173,7 +171,7 @@ def get_model(config):
 
         model = XGBModel(
             lags=config.n_lags,
-            lags_future_covariates=[0],
+            lags_future_covariates=[-1],
             add_encoders=config.datetime_encoders,
             output_chunk_length=config.n_ahead,
             likelihood=config.liklihood,
@@ -183,10 +181,12 @@ def get_model(config):
 
     elif model == "lgbm":
         lightgbm_kwargs = initialize_kwargs(config)
+        if lightgbm_kwargs['objective'] == 'reg:pseudohubererror': # dirty hack to make it work because lightgbm changed the name of the objective
+            lightgbm_kwargs['objective'] = 'huber'
 
         model = LightGBMModel(
             lags=config.n_lags,
-            lags_future_covariates=[0],
+            lags_future_covariates=[-1],
             add_encoders=config.datetime_encoders,
             output_chunk_length=config.n_ahead,
             likelihood=config.liklihood,
@@ -199,7 +199,7 @@ def get_model(config):
 
         model = RandomForest(
             lags=config.n_lags,
-            lags_future_covariates=[0],
+            lags_future_covariates=[-1],
             add_encoders=config.datetime_encoders,
             output_chunk_length=config.n_ahead,
             random_state=42,
@@ -525,9 +525,9 @@ def training(scale, location):
     config_per_model = {}
     for model in tuned_models:
         config, name = get_best_run_config(
-            "Wattcast_tuning", "+eval_loss", model, scale, location
+            "Wattcast_tuning", "-eval_loss", model, scale, location
         )
-        print(f"Fetch sweep with name {name} for model {model}")
+        print(f"Fetched sweep with name {name} for model {model}")
         config["horizon_in_hours"] = 48  # type: ignore
         config["location"] = location  # type: ignore
         config_per_model[model] = config, name

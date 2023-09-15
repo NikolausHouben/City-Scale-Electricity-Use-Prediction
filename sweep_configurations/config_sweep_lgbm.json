@@ -7,6 +7,7 @@
     "parameters": {
         "n_estimators": {
             "values": [
+                50,
                 100,
                 500,
                 1000
@@ -36,8 +37,8 @@
         },
         "objective": {
             "values": [
-                "reg:squarederror",
-                "reg:pseudohubererror"
+                "mean_squared_error",
+                "huber"
             ]
         },
         "reg_lambda": {
@@ -46,7 +47,9 @@
                 0.3,
                 0.5,
                 0.7,
-                1
+                1,
+                2,
+                4
             ]
         },
         "datetime_encodings": {
