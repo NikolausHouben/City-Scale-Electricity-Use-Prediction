@@ -50,13 +50,17 @@
                 8
             ]
         },
-
         "datetime_encodings": {
             "values": [
-                    1,
-                    0
+                1,
+                0
+            ]
+        },
+        "heat_wave_binary": {
+            "values": [
+                1,
+                0
             ]
         }
-
-    }}
-
+    }
+}

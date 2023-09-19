@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 import time
 import json
+import argparse
 
 
 import plotly.express as px
@@ -26,15 +27,17 @@ from darts.dataprocessing.transformers.boxcox import BoxCox
 from darts.dataprocessing.transformers.scaler import Scaler
 from darts.dataprocessing import Pipeline
 from darts.models import (
-    BlockRNNModel,
-    NBEATSModel,
+    LinearRegressionModel,
     RandomForest,
     LightGBMModel,
     XGBModel,
-    LinearRegressionModel,
+    BlockRNNModel,
+    NBEATSModel,
     TFTModel,
-    TransformerModel,
 )
+
+import wandb
+from wandb.xgboost import WandbCallback
 
 
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
@@ -145,8 +148,6 @@ def get_model(config):
 
     model = config.model
 
-    # for torch models
-
     # ----------------- #
 
     optimizer_kwargs = {}
@@ -160,14 +161,18 @@ def get_model(config):
         "accelerator": "gpu",
         "devices": [0],
         "callbacks": [EarlyStopping(monitor="val_loss", patience=5, mode="min")],
-        #'logger': WandbLogger(log_model='all'),
+        #'logger': WandbLogger(log_model='all'), #turn on in case you want to log the model itself to wandb
     }
-
     schedule_kwargs = {"patience": 2, "factor": 0.5, "min_lr": 1e-5, "verbose": True}
     # ----------------- #
 
+    # ==== Tree-based models ====
     if model == "xgb":
         xgb_kwargs = initialize_kwargs(config)
+        xgb_kwargs["early_stopping_rounds"] = 20
+        # xgb_kwargs["callbacks"] = [WandbCallback()]
+        xgb_kwargs["verbose"] = 10
+        xgb_kwargs["eval_metric"] = "rmse"
 
         model = XGBModel(
             lags=config.n_lags,
@@ -181,8 +186,10 @@ def get_model(config):
 
     elif model == "lgbm":
         lightgbm_kwargs = initialize_kwargs(config)
-        if lightgbm_kwargs['objective'] == 'reg:pseudohubererror': # dirty hack to make it work because lightgbm changed the name of the objective
-            lightgbm_kwargs['objective'] = 'huber'
+        lightgbm_kwargs[
+            "early_stopping_round"
+        ] = 20  # note that 'early_stopping_rounds' is not supported by lightgbm only 'early_stopping_round'
+        lightgbm_kwargs["metric"] = "rmse"
 
         model = LightGBMModel(
             lags=config.n_lags,
@@ -205,6 +212,8 @@ def get_model(config):
             random_state=42,
             **rf_kwargs,
         )
+
+    # ==== Neural Network models ====
 
     elif model == "nbeats":
         nbeats_kwargs = initialize_kwargs(config)
@@ -301,13 +310,12 @@ def data_pipeline(config):
 
     datetime_encoders = {
         "cyclic": {"future": timestep_encoding},
-        "position": {
-            "future": [
-                "relative",
-            ]
-        },
+        # "position": {
+        #     "future": [
+        #         "relative",
+        #     ]
+        # },
         "datetime_attribute": {"future": ["dayofweek", "week"]},
-        "position": {"past": ["relative"], "future": ["relative"]},
     }
 
     datetime_encoders = datetime_encoders if config.datetime_encodings else None
@@ -349,15 +357,16 @@ def data_pipeline(config):
     )
 
     # Heat wave covariate, categorical variable
-    df_cov_train["heat_wave"] = df_cov_train[df_cov_train.columns[0]] > df_cov_train[
-        df_cov_train.columns[0]
-    ].quantile(0.95)
-    df_cov_val["heat_wave"] = df_cov_val[df_cov_val.columns[0]] > df_cov_val[
-        df_cov_val.columns[0]
-    ].quantile(0.95)
-    df_cov_test["heat_wave"] = df_cov_test[df_cov_test.columns[0]] > df_cov_test[
-        df_cov_test.columns[0]
-    ].quantile(0.95)
+    if config.heat_wave_binary:
+        df_cov_train["heat_wave"] = df_cov_train[
+            df_cov_train.columns[0]
+        ] > df_cov_train[df_cov_train.columns[0]].quantile(0.95)
+        df_cov_val["heat_wave"] = df_cov_val[df_cov_val.columns[0]] > df_cov_val[
+            df_cov_val.columns[0]
+        ].quantile(0.95)
+        df_cov_test["heat_wave"] = df_cov_test[df_cov_test.columns[0]] > df_cov_test[
+            df_cov_test.columns[0]
+        ].quantile(0.95)
 
     # into darts format
     ts_train = darts.TimeSeries.from_dataframe(
@@ -405,13 +414,17 @@ def data_pipeline(config):
     config.longest_ts_val_idx = get_longest_subseries_idx(ts_val)
     config.longest_ts_test_idx = get_longest_subseries_idx(ts_test)
 
-    # Preprocessing Pipeline
-    pipeline = Pipeline(  # missing values have been filled in the 'data_prep.ipynb'
+    # Preprocessing Pipeline, global fit is important to turn on because we have split the entire ts into multiple timeseries at nans
+    # but want to use the same params for all of them
+    # Missing values have been filled in the 'data_prep.ipynb', so we don't need to do that here
+    pipeline = Pipeline(
         [
-            BoxCox()
+            BoxCox(global_fit=True)
             if config.boxcox
-            else Scaler(MinMaxScaler()),  # double scale in case boxcox is turned off
-            Scaler(MinMaxScaler()),
+            else Scaler(
+                MinMaxScaler(), global_fit=True
+            ),  # double scale in case boxcox is turned off
+            Scaler(MinMaxScaler(), global_fit=True),
         ]
     )
     ts_train_piped = pipeline.fit_transform(ts_train)
@@ -420,7 +433,7 @@ def data_pipeline(config):
 
     # Weather Pipeline
     if config.weather:
-        pipeline_weather = Pipeline([Scaler(RobustScaler())])
+        pipeline_weather = Pipeline([Scaler(RobustScaler(), global_fit=True)])
         ts_train_weather_piped = pipeline_weather.fit_transform(ts_cov_train)
         ts_val_weather_piped = pipeline_weather.transform(ts_cov_val)
         ts_test_weather_piped = pipeline_weather.transform(ts_cov_test)
@@ -506,20 +519,10 @@ def train_models(
 # experiments
 
 
-def training(scale, location):
+def training(scale, location, tuned_models):
     """Loads existing models (from disk) if they exist, otherwise trains new models with optimial hyperparameters (from wandb) if they exist"""
 
     units_dict = {"county": "GW", "town": "MW", "village": "kW", "neighborhood": "kW"}
-
-    tuned_models = [
-        # "rf",
-        "lgbm",
-        # "xgb",
-        # "gru",
-        # "nbeats",
-        #'tft'
-    ]
-
     resolution = 60
 
     config_per_model = {}
@@ -582,8 +585,13 @@ def training(scale, location):
 
 
 if __name__ == "__main__":
+    # argparse scale and location
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--scale", type=str, default="1_county")
+    parser.add_argument("--location", type=str, default="Los_Angeles")
+    parser.add_argument("--tuned_models", nargs="+", type=str, default=["xgb"])
+    args = parser.parse_args()
+
     wandb.login()
-    scale = "1_county"
-    location = "Los_Angeles"
-    config, models_dict = training(scale, location)
+    config, models_dict = training(args.scale, args.location, args.tuned_models)
     wandb.finish()

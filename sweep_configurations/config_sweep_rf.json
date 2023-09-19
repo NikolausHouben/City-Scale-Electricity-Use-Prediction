@@ -44,6 +44,12 @@
                 1,
                 0
             ]
+        },
+        "heat_wave_binary": {
+            "values": [
+                1,
+                0
+            ]
         }
     }
 }
