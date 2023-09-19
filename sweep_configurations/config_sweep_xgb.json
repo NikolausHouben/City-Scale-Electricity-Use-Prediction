@@ -7,11 +7,9 @@
     "parameters": {
         "n_estimators": {
             "values": [
-                100,
-                500,
+                5,
                 1000
             ]
         }
-        
     }
 }
