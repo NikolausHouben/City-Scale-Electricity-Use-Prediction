@@ -101,7 +101,7 @@ class Config:
         return config
 
 
-def initialize_kwargs(config):
+def initialize_kwargs(config, model_instance):
     """Initializes the kwargs for the model with the available wandb sweep config or with the default values."""
     model = config.model
 
@@ -116,7 +116,14 @@ def initialize_kwargs(config):
     except:
         kwargs = {}
         print("No sweep config found. Using default values.")
-    return kwargs
+
+    for key, value in kwargs.items():
+        try:
+            setattr(model_instance.model, key, value)
+        except:
+            print(f"Could not set {key} to {value} for {model}")
+
+    return model_instance
 
 
 def get_model_instances(tuned_models, config_per_model):
@@ -146,7 +153,7 @@ def get_model_instances(tuned_models, config_per_model):
 def get_model(config):
     """Returns model instance, based on the models specified in the config."""
 
-    model = config.model
+    model_abbr = config.model
 
     # ----------------- #
 
@@ -167,13 +174,10 @@ def get_model(config):
     # ----------------- #
 
     # ==== Tree-based models ====
-    if model == "xgb":
-        xgb_kwargs = initialize_kwargs(config)
-        xgb_kwargs["early_stopping_rounds"] = 20
-        # xgb_kwargs["callbacks"] = [WandbCallback()]
-        xgb_kwargs["verbose"] = 10
-        xgb_kwargs["eval_metric"] = "rmse"
-
+    if model_abbr == "xgb":
+        
+        xgb_kwargs = {'early_stopping_rounds': 20, 'eval_metric': 'rmse', 'verbose': 10}
+        
         model = XGBModel(
             lags=config.n_lags,
             lags_future_covariates=[-1],
@@ -182,14 +186,12 @@ def get_model(config):
             likelihood=config.liklihood,
             random_state=42,
             **xgb_kwargs,
-        )
+            )
 
-    elif model == "lgbm":
-        lightgbm_kwargs = initialize_kwargs(config)
-        lightgbm_kwargs[
-            "early_stopping_round"
-        ] = 20  # note that 'early_stopping_rounds' is not supported by lightgbm only 'early_stopping_round'
-        lightgbm_kwargs["metric"] = "rmse"
+
+    elif model_abbr == "lgbm":
+
+        lightgbm_kwargs = {'early_stopping_round': 20, 'eval_metric': 'rmse'}
 
         model = LightGBMModel(
             lags=config.n_lags,
@@ -201,22 +203,20 @@ def get_model(config):
             **lightgbm_kwargs,
         )
 
-    elif model == "rf":
-        rf_kwargs = initialize_kwargs(config)
 
+    elif model_abbr == "rf":
+        
         model = RandomForest(
             lags=config.n_lags,
             lags_future_covariates=[-1],
             add_encoders=config.datetime_encoders,
             output_chunk_length=config.n_ahead,
             random_state=42,
-            **rf_kwargs,
         )
-
+    
     # ==== Neural Network models ====
 
-    elif model == "nbeats":
-        nbeats_kwargs = initialize_kwargs(config)
+    elif model_abbr == "nbeats":
 
         model = NBEATSModel(
             input_chunk_length=config.n_lags,
@@ -228,11 +228,9 @@ def get_model(config):
             lr_scheduler_cls=ReduceLROnPlateau,
             lr_scheduler_kwargs=schedule_kwargs,
             random_state=42,
-            **nbeats_kwargs,
         )
 
-    elif model == "gru":
-        rnn_kwargs = initialize_kwargs(config)
+    elif model_abbr == "gru":
 
         model = BlockRNNModel(
             model="GRU",
@@ -244,12 +242,10 @@ def get_model(config):
             optimizer_kwargs=optimizer_kwargs,
             lr_scheduler_cls=ReduceLROnPlateau,
             lr_scheduler_kwargs=schedule_kwargs,
-            random_state=42,
-            **rnn_kwargs,
+            random_state=42
         )
 
-    elif model == "tft":
-        tft_kwargs = initialize_kwargs(config)
+    elif model_abbr == "tft":
 
         model = TFTModel(
             input_chunk_length=config.n_lags,
@@ -261,11 +257,12 @@ def get_model(config):
             lr_scheduler_cls=ReduceLROnPlateau,
             lr_scheduler_kwargs=schedule_kwargs,
             random_state=42,
-            **tft_kwargs,
         )
 
     else:
-        raise ValueError(f"Model {model} not supported.")
+        raise ValueError(f"Model {model_abbr} not supported.")
+    
+    model = initialize_kwargs(config, model)
 
     return model
 
