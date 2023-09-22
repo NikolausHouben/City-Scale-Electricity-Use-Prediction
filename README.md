@@ -16,3 +16,6 @@ Copyright (c) 2023 Nikolaus Houben
 The forecasts in this repo were generated with the [darts](https://unit8co.github.io/darts/README.html), [pytorch](https://pytorch.org/), and dmlc [XGBoost](https://xgboost.ai/) and experiment tracking was performed with [weights & biases](https://wandb.ai/site).
 
 
+
+
+<img width="1170" alt="Screenshot 2023-09-22 at 14 22 48" src="https://github.com/nikohou/WattCast/assets/42303181/45076b53-4178-4397-aa67-77a870323822">
