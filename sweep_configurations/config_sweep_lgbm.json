@@ -23,9 +23,10 @@
         },
         "max_depth": {
             "values": [
-                3,
-                6,
-                12
+                2,
+                5,
+                10,
+                15
             ]
         },
         "min_child_weight": {

@@ -63,6 +63,12 @@ def save_models_to_disk(config, models_dict):
         models_dict[model].save(os.path.join(model_path, model + ".joblib"))
 
 
+def check_if_torch_model(obj):
+    for cls in obj.__class__.mro():
+        if 'torch' in cls.__module__:
+            return True
+    return False
+
 def load_trained_models(config, model_instances):
     """
 

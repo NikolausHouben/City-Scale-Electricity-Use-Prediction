@@ -18,10 +18,10 @@ from utils import (
     get_longest_subseries_idx,
     load_trained_models,
     save_models_to_disk,
+    check_if_torch_model
 )
 
 import darts
-from darts import TimeSeries
 from darts.utils.missing_values import extract_subseries
 from darts.dataprocessing.transformers.boxcox import BoxCox
 from darts.dataprocessing.transformers.scaler import Scaler
@@ -38,8 +38,6 @@ from darts.models import (
 
 import wandb
 from wandb.xgboost import WandbCallback
-
-
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
@@ -105,6 +103,8 @@ def initialize_kwargs(config, model_instance):
     """Initializes the kwargs for the model with the available wandb sweep config or with the default values."""
     model = config.model
 
+    is_torch_model = check_if_torch_model(model_instance) # we will handle torch models a bit differently here
+
     try:
         sweep_path = os.path.join(
             root_path, "sweep_configurations", f"config_sweep_{model}.json"
@@ -117,11 +117,19 @@ def initialize_kwargs(config, model_instance):
         kwargs = {}
         print("No sweep config found. Using default values.")
 
-    for key, value in kwargs.items():
-        try:
-            setattr(model_instance.model, key, value)
-        except:
-            print(f"Could not set {key} to {value} for {model}")
+    if is_torch_model: # parameters of torch models are only written to the .model object at fit time, before that they are in the model_instance itself
+        for key, value in kwargs.items():
+            try:
+                setattr(model_instance, key, value)
+            except:
+                raise ValueError(f"Could not set {key} to {value} for {model}.")
+    else:
+        for key, value in kwargs.items(): # parameters of non-torch models are written to the .model object at initialization
+            try:
+                setattr(model_instance.model, key, value)
+            except:
+                raise ValueError(f"Could not set {key} to {value} for {model}.")
+
 
     return model_instance
 
@@ -164,7 +172,7 @@ def get_model(config):
         optimizer_kwargs["lr"] = 1e-3
 
     pl_trainer_kwargs = {
-        "max_epochs": 20,
+        "max_epochs": 2,
         "accelerator": "gpu",
         "devices": [0],
         "callbacks": [EarlyStopping(monitor="val_loss", patience=5, mode="min")],
@@ -586,7 +594,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--scale", type=str, default="1_county")
     parser.add_argument("--location", type=str, default="Los_Angeles")
-    parser.add_argument("--tuned_models", nargs="+", type=str, default=["xgb"])
+    parser.add_argument("--tuned_models", nargs="+", type=str, default=["nbeats"])
     args = parser.parse_args()
 
     wandb.login()

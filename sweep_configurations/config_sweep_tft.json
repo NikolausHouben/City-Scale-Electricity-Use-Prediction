@@ -14,7 +14,7 @@
                 256
             ]
         },
-        "hidden_dim": {
+        "hidden_size": {
             "values": [
                 128,
                 256,
@@ -22,17 +22,17 @@
                 1024
             ]
         },
-        "n_rnn_layers": {
+        "lstm_layers": {
             "values": [
                 1,
-                2,
-                3
+                2
             ]
         },
         "dropout": {
             "values": [
                 0.0,
-                0.1
+                0.1,
+                0.2
             ]
         },
         "lr": {
