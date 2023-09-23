@@ -7,6 +7,7 @@ import numpy as np
 import time
 import json
 import argparse
+import inspect
 
 
 import plotly.express as px
@@ -18,7 +19,7 @@ from utils import (
     get_longest_subseries_idx,
     load_trained_models,
     save_models_to_disk,
-    check_if_torch_model
+    check_if_torch_model,
 )
 
 import darts
@@ -48,7 +49,7 @@ dir_path = os.path.join(root_path, "data", "clean_data")
 
 class Config:
     """
-    Class to store config parameters, to circumvent the wandb.config when combining multiple models.
+    Class to store config parameters, to circumvent the wandb.config when combining multiple models when debugging
     """
 
     def __init__(self):
@@ -99,63 +100,40 @@ class Config:
         return config
 
 
-def initialize_kwargs(config, model_instance):
+def initialize_kwargs(config, model_class, additional_kwargs=None):
     """Initializes the kwargs for the model with the available wandb sweep config or with the default values."""
-    model = config.model
+    model_name = config.model
+    is_torch_model = check_if_torch_model(
+        model_class
+    )  # we will handle torch models a bit differently here
 
-    is_torch_model = check_if_torch_model(model_instance) # we will handle torch models a bit differently here
-
-    try:
-        sweep_path = os.path.join(
-            root_path, "sweep_configurations", f"config_sweep_{model}.json"
-        )
-        with open(sweep_path) as f:
-            sweep_config = json.load(f)["parameters"]
-
-        kwargs = {k: config.__getitem__(k) for k in sweep_config.keys()}
-    except:
-        kwargs = {}
-        print("No sweep config found. Using default values.")
-
-    if is_torch_model: # parameters of torch models are only written to the .model object at fit time, before that they are in the model_instance itself
-        for key, value in kwargs.items():
-            try:
-                setattr(model_instance, key, value)
-            except:
-                raise ValueError(f"Could not set {key} to {value} for {model}.")
-    else:
-        for key, value in kwargs.items(): # parameters of non-torch models are written to the .model object at initialization
-            try:
-                setattr(model_instance.model, key, value)
-            except:
-                raise ValueError(f"Could not set {key} to {value} for {model}.")
-
-
-    return model_instance
-
-
-def get_model_instances(tuned_models, config_per_model):
-    """Returns a list of model instances for the models that were tuned and appends a linear regression model."""
-
-    model_instances = {}
-    for model in tuned_models:
-        print("Getting model instance for " + model + "...")
-        config = Config().from_dict(config_per_model[model][0])
-        model_instances[model] = get_model(config)
-
-    # since we did not optimize the hyperparameters for the linear regression model, we need to create a new instance
-    print("Getting model instance for linear regression...")
-    config = Config().from_dict(config_per_model[tuned_models[0]][0])
-    lr_model = LinearRegressionModel(
-        lags=config.n_lags,
-        lags_future_covariates=[0],
-        output_chunk_length=config.n_ahead,
-        add_encoders=config.datetime_encoders,
-        random_state=42,
+    sweep_path = os.path.join(
+        root_path, "sweep_configurations", f"config_sweep_{model_name}.json"
     )
+    with open(sweep_path) as f:
+        sweep_config = json.load(f)["parameters"]
 
-    model_instances["lr"] = lr_model
-    return model_instances
+    kwargs = {k: config.__getitem__(k) for k in sweep_config.keys()}
+
+    if additional_kwargs is not None:
+        kwargs.update(additional_kwargs)
+
+    if is_torch_model:
+        valid_keywords = list(
+            set(list(inspect.signature(model_class.__init__).parameters.keys())[1:])
+            & set(config.keys())
+        )
+        kwargs = {key: value for key, value in kwargs.items() if key in valid_keywords}
+
+    else:
+        m = model_class(
+            lags=config.n_lags
+        )  # need to initialize the model to get the available params, we will not use this model
+        params = m.model.get_params()
+        valid_keywords = list(set(params.keys()) & set(config.keys()))
+        kwargs = {key: value for key, value in kwargs.items() if key in valid_keywords}
+
+    return kwargs
 
 
 def get_model(config):
@@ -183,50 +161,57 @@ def get_model(config):
 
     # ==== Tree-based models ====
     if model_abbr == "xgb":
-        
-        xgb_kwargs = {'early_stopping_rounds': 20, 'eval_metric': 'rmse', 'verbose': 10}
-        
-        model = XGBModel(
+        model_class = XGBModel
+        xgb_kwargs = {"early_stopping_rounds": 20, "eval_metric": "rmse", "verbose": 10}
+        kwargs = initialize_kwargs(config, model_class, additional_kwargs=xgb_kwargs)
+
+        model = model_class(
             lags=config.n_lags,
-            lags_future_covariates=[-1],
             add_encoders=config.datetime_encoders,
             output_chunk_length=config.n_ahead,
             likelihood=config.liklihood,
             random_state=42,
-            **xgb_kwargs,
-            )
-
+            **kwargs,
+        )
 
     elif model_abbr == "lgbm":
+        model_class = LightGBMModel
 
-        lightgbm_kwargs = {'early_stopping_round': 20, 'eval_metric': 'rmse'}
+        lightgbm_kwargs = {"early_stopping_round": 20, "eval_metric": "rmse"}
+        kwargs = initialize_kwargs(
+            config, model_class, additional_kwargs=lightgbm_kwargs
+        )
 
-        model = LightGBMModel(
+        model = model_class(
             lags=config.n_lags,
-            lags_future_covariates=[-1],
             add_encoders=config.datetime_encoders,
             output_chunk_length=config.n_ahead,
             likelihood=config.liklihood,
             random_state=42,
-            **lightgbm_kwargs,
+            **kwargs,
         )
 
-
     elif model_abbr == "rf":
-        
-        model = RandomForest(
+        model_class = RandomForest
+
+        kwargs = initialize_kwargs(config, model_class)
+
+        model = model_class(
             lags=config.n_lags,
-            lags_future_covariates=[-1],
             add_encoders=config.datetime_encoders,
             output_chunk_length=config.n_ahead,
             random_state=42,
+            **kwargs,
         )
-    
+
     # ==== Neural Network models ====
 
     elif model_abbr == "nbeats":
+        model_class = NBEATSModel
 
-        model = NBEATSModel(
+        kwargs = initialize_kwargs(config, model_class)
+
+        model = model_class(
             input_chunk_length=config.n_lags,
             output_chunk_length=config.n_ahead,
             add_encoders=config.datetime_encoders,
@@ -236,11 +221,15 @@ def get_model(config):
             lr_scheduler_cls=ReduceLROnPlateau,
             lr_scheduler_kwargs=schedule_kwargs,
             random_state=42,
+            **kwargs,
         )
 
     elif model_abbr == "gru":
+        model_class = BlockRNNModel
 
-        model = BlockRNNModel(
+        kwargs = initialize_kwargs(config, model_class)
+
+        model = model_class(
             model="GRU",
             input_chunk_length=config.n_lags,
             output_chunk_length=config.n_ahead,
@@ -250,12 +239,16 @@ def get_model(config):
             optimizer_kwargs=optimizer_kwargs,
             lr_scheduler_cls=ReduceLROnPlateau,
             lr_scheduler_kwargs=schedule_kwargs,
-            random_state=42
+            random_state=42,
+            **kwargs,
         )
 
     elif model_abbr == "tft":
+        model_class = TFTModel
 
-        model = TFTModel(
+        kwargs = initialize_kwargs(config, model_class)
+
+        model = model_class(
             input_chunk_length=config.n_lags,
             output_chunk_length=config.n_ahead,
             add_encoders=config.datetime_encoders,
@@ -268,11 +261,34 @@ def get_model(config):
         )
 
     else:
+        model = None
         raise ValueError(f"Model {model_abbr} not supported.")
-    
-    model = initialize_kwargs(config, model)
 
     return model
+
+
+def get_model_instances(tuned_models, config_per_model):
+    """Returns a list of model instances for the models that were tuned and appends a linear regression model."""
+
+    model_instances = {}
+    for model in tuned_models:
+        print("Getting model instance for " + model + "...")
+        config = Config().from_dict(config_per_model[model][0])
+        model_instances[model] = get_model(config)
+
+    # since we did not optimize the hyperparameters for the linear regression model, we need to create a new instance
+    print("Getting model instance for linear regression...")
+    config = Config().from_dict(config_per_model[tuned_models[0]][0])
+    lr_model = LinearRegressionModel(
+        lags=config.n_lags,
+        lags_future_covariates=[0],
+        output_chunk_length=config.n_ahead,
+        add_encoders=config.datetime_encoders,
+        random_state=42,
+    )
+
+    model_instances["lr"] = lr_model
+    return model_instances
 
 
 def get_best_run_config(project_name, metric, model, scale, location):
