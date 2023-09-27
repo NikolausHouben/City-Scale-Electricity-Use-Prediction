@@ -150,7 +150,7 @@ def get_model(config):
         optimizer_kwargs["lr"] = 1e-3
 
     pl_trainer_kwargs = {
-        "max_epochs": 2,
+        "max_epochs": 30,
         "accelerator": "gpu",
         "devices": [0],
         "callbacks": [EarlyStopping(monitor="val_loss", patience=5, mode="min")],
@@ -162,7 +162,7 @@ def get_model(config):
     # ==== Tree-based models ====
     if model_abbr == "xgb":
         model_class = XGBModel
-        xgb_kwargs = {"early_stopping_rounds": 20, "eval_metric": "rmse", "verbose": 10}
+        xgb_kwargs = {"early_stopping_rounds": 30, "eval_metric": "rmse", "verbose": 10}
         kwargs = initialize_kwargs(config, model_class, additional_kwargs=xgb_kwargs)
 
         model = model_class(
@@ -177,7 +177,7 @@ def get_model(config):
     elif model_abbr == "lgbm":
         model_class = LightGBMModel
 
-        lightgbm_kwargs = {"early_stopping_round": 20, "eval_metric": "rmse"}
+        lightgbm_kwargs = {"early_stopping_round": 30, "eval_metric": "rmse"}
         kwargs = initialize_kwargs(
             config, model_class, additional_kwargs=lightgbm_kwargs
         )
@@ -308,7 +308,7 @@ def get_best_run_config(project_name, metric, model, scale, location):
             sweeps = project.sweeps()
 
     for sweep in sweeps:
-        if model in sweep.name and scale in sweep.name and location in sweep.name:
+        if model in sweep.name and scale in sweep.name: # and location in sweep.name:
             best_run = sweep.best_run(order=metric)
             config = best_run.config
             name = best_run.name
@@ -549,7 +549,7 @@ def training(scale, location, tuned_models):
     config_per_model = {}
     for model in tuned_models:
         config, name = get_best_run_config(
-            "Wattcast_tuning", "-eval_loss", model, scale, location
+            "Wattcast_tuning", "+eval_loss", model, scale, location
         )
         print(f"Fetched sweep with name {name} for model {model}")
         config["horizon_in_hours"] = 48  # type: ignore
@@ -557,7 +557,7 @@ def training(scale, location, tuned_models):
         config_per_model[model] = config, name
 
     name_id = scale + "_" + location + "_" + str(resolution) + "min"
-    wandb.init(project="Wattcast", name=name_id, id=name_id)
+    wandb.init(project="Wattcast_1", name=name_id, id=name_id)
 
     config = Config().from_dict(config_per_model[tuned_models[0]][0])
 
@@ -610,7 +610,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--scale", type=str, default="1_county")
     parser.add_argument("--location", type=str, default="Los_Angeles")
-    parser.add_argument("--tuned_models", nargs="+", type=str, default=["nbeats"])
+    parser.add_argument("--tuned_models", nargs="+", type=str, default=['rf','xgb', 'lgbm',  'gru', 'nbeats','tft'])
     args = parser.parse_args()
 
     wandb.login()

@@ -16,6 +16,7 @@
         },
         "hidden_size": {
             "values": [
+                64,
                 128,
                 256,
                 512,
@@ -25,7 +26,8 @@
         "lstm_layers": {
             "values": [
                 1,
-                2
+                2,
+                3
             ]
         },
         "dropout": {
@@ -39,8 +41,7 @@
             "values": [
                 0.0003,
                 0.001,
-                0.01,
-                0.1
+                0.01
             ]
         },
         "num_attention_heads": {

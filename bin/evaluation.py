@@ -4,6 +4,7 @@ import os
 from functools import wraps
 from inspect import signature
 from typing import Callable, Optional, Sequence, Tuple, Union
+import pickle
 
 import numpy as np
 import pandas as pd
@@ -21,12 +22,15 @@ from utils import (
     ts_list_concat_new,
     get_df_diffs,
     get_df_compares_list,
-    ts_list_concat
+    ts_list_concat,
+    create_directory
 )
 
 from train import data_pipeline
 
-dir_path = os.path.join(os.path.dirname(os.getcwd()), "data", "clean_data")
+root_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+dir_path = os.path.join(root_path, "data", "clean_data")
+evaluations_path = os.path.join(root_path, "data", "evaluations")
 
 
 logger = get_logger(__name__)
@@ -252,39 +256,56 @@ def evaluate(config, models_dict):
         otherwise runs a backtest for each model on the val and test set, and then formats it into the various horizons
         
     '''
-    (
-        pipeline,
-        ts_train_piped,
-        ts_val_piped,
-        ts_test_piped,
-        ts_train_weather_piped,
-        ts_val_weather_piped,
-        ts_test_weather_piped,
-        trg_train_inversed,
-        trg_val_inversed,
-        trg_test_inversed,
-    ) = data_pipeline(config)
+    location = config.location
+    scale = config.spatial_scale
 
-    test_sets = {  # see data_prep.ipynb for the split
-        "Winter": (
-            ts_val_piped[config.longest_ts_val_idx],
-            None
-            if not config.weather
-            else ts_val_weather_piped[config.longest_ts_val_idx], # type: ignore
+    evaluation_dict_path = os.path.join(evaluations_path, scale)
+    create_directory(evaluation_dict_path)
+
+    try:
+        with open(os.path.join(evaluation_dict_path, f'{location}.pkl'), 'rb') as f:
+            dict_result_n_ahead = pickle.load(f)
+            print("Evaluation dictionary found, loading")
+
+    except:
+        print("No evaluation dictionary found, running backtest")
+        
+        (
+            pipeline,
+            ts_train_piped,
+            ts_val_piped,
+            ts_test_piped,
+            ts_train_weather_piped,
+            ts_val_weather_piped,
+            ts_test_weather_piped,
+            trg_train_inversed,
             trg_val_inversed,
-        ),
-        "Summer": (
-            ts_test_piped[config.longest_ts_test_idx],
-            None
-            if not config.weather
-            else ts_test_weather_piped[config.longest_ts_test_idx], # type: ignore
             trg_test_inversed,
-        ),
-    }
+        ) = data_pipeline(config)
 
-    dict_result_season = backtesting(models_dict, pipeline, test_sets, config)
+        test_sets = {  # see data_prep.ipynb for the split
+            "Winter": (
+                ts_val_piped[config.longest_ts_val_idx],
+                None
+                if not config.weather
+                else ts_val_weather_piped[config.longest_ts_val_idx], # type: ignore
+                trg_val_inversed,
+            ),
+            "Summer": (
+                ts_test_piped[config.longest_ts_test_idx],
+                None
+                if not config.weather
+                else ts_test_weather_piped[config.longest_ts_test_idx], # type: ignore
+                trg_test_inversed,
+            ),
+        }
 
-    dict_result_n_ahead = extract_forecasts_per_horizon(config, dict_result_season)
+        dict_result_season = backtesting(models_dict, pipeline, test_sets, config)
+
+        dict_result_n_ahead = extract_forecasts_per_horizon(config, dict_result_season)
+
+        with open(os.path.join(evaluation_dict_path, f'{location}.pkl'), 'wb') as f:
+            pickle.dump(dict_result_n_ahead, f)
 
     return dict_result_n_ahead
 

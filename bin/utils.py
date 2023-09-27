@@ -42,8 +42,6 @@ def create_directory(directory_path):
 
 
 def save_models_to_disk(config, models_dict):
-    model_dir = os.path.join(os.getcwd(), "models")
-
     create_directory(model_dir)
     for model in models_dict.keys():
         model_path = os.path.join(
