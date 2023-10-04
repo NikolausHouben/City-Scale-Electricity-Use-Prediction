@@ -308,7 +308,7 @@ def get_best_run_config(project_name, metric, model, scale, location):
             sweeps = project.sweeps()
 
     for sweep in sweeps:
-        if model in sweep.name and scale in sweep.name and location in sweep.name:
+        if model in sweep.name and scale in sweep.name:  # and location in sweep.name:
             best_run = sweep.best_run(order=metric)
             config = best_run.config
             name = best_run.name
@@ -557,7 +557,7 @@ def training(scale, location, tuned_models):
         config_per_model[model] = config, name
 
     name_id = scale + "_" + location + "_" + str(resolution) + "min"
-    wandb.init(project="Wattcast", name=name_id, id=name_id)
+    wandb.init(project="Portland_AMI", name=name_id, id=name_id)
 
     config = Config().from_dict(config_per_model[tuned_models[0]][0])
 
@@ -608,9 +608,9 @@ def training(scale, location, tuned_models):
 if __name__ == "__main__":
     # argparse scale and location
     parser = argparse.ArgumentParser()
-    parser.add_argument("--scale", type=str, default="1_county")
-    parser.add_argument("--location", type=str, default="Los_Angeles")
-    parser.add_argument("--tuned_models", nargs="+", type=str, default=["nbeats"])
+    parser.add_argument("--scale", type=str, default="2_town")
+    parser.add_argument("--location", type=str, default="GLENDOVEER-13596")
+    parser.add_argument("--tuned_models", nargs="+", type=str, default=["xgb", "lgbm"])
     args = parser.parse_args()
 
     wandb.login()

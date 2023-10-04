@@ -507,3 +507,72 @@ def get_run_name_id_dict(runs):
         n = n.replace("_in_", "in")
         name_id_dict[n] = run_.id
     return name_id_dict
+
+
+def remove_outliers(df, column, lower_percentile=0, upper_percentile=100):
+    lower_threshold = df[column].quantile(lower_percentile / 100)
+    upper_threshold = df[column].quantile(upper_percentile / 100)
+    df_filtered = df[(df[column] >= lower_threshold) & (df[column] <= upper_threshold)]
+    return df_filtered
+
+
+import pandas as pd
+
+
+def plot_location_splits(dir_path):
+    locations, temps = get_hdf_keys(dir_path)
+
+    spatial_scale = list(locations.keys())[0]
+    location = list(locations.values())[0][0]
+    temp_resolution = list(temps.values())[0][0]
+
+    df_train = pd.read_hdf(
+        os.path.join(dir_path, f"{spatial_scale}"),
+        key=f"{location}/{temp_resolution}/train_target",
+    )
+    df_val = pd.read_hdf(
+        os.path.join(dir_path, f"{spatial_scale}"),
+        key=f"{location}/{temp_resolution}/val_target",
+    )
+    df_test = pd.read_hdf(
+        os.path.join(dir_path, f"{spatial_scale}"),
+        key=f"{location}/{temp_resolution}/test_target",
+    )
+
+    df_cov_train = pd.read_hdf(
+        os.path.join(dir_path, f"{spatial_scale}"),
+        key=f"{location}/{temp_resolution}/train_cov",
+    )
+    df_cov_val = pd.read_hdf(
+        os.path.join(dir_path, f"{spatial_scale}"),
+        key=f"{location}/{temp_resolution}/val_cov",
+    )
+    df_cov_test = pd.read_hdf(
+        os.path.join(dir_path, f"{spatial_scale}"),
+        key=f"{location}/{temp_resolution}/test_cov",
+    )
+
+    import plotly.express as px
+    import plotly.graph_objects as go
+
+    fig = px.line(df_train)
+
+    dfs = {
+        "df_train": df_train,
+        "df_val": df_val,
+        "df_test": df_test,
+        "df_cov_train": df_cov_train,
+        "df_cov_val": df_cov_val,
+        "df_cov_test": df_cov_test,
+    }
+
+    # Create an empty figure
+    fig = go.Figure()
+
+    # For each dataframe in the dictionary, create a line plot trace
+    for name, df in dfs.items():
+        fig.add_trace(
+            go.Scatter(x=df.index, y=df[df.columns[0]], mode="lines", name=name)
+        )
+
+    fig.show()
