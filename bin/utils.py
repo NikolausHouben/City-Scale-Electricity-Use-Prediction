@@ -21,6 +21,7 @@ from typing import List
 
 
 root_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+dir_path = os.path.join(root_path, "data", "clean_data")
 model_dir = os.path.join(root_path, "models")
 
 
@@ -573,3 +574,65 @@ def plot_location_splits(dir_path):
         )
 
     fig.show()
+
+
+def load_data(config):
+    """Loads the data from disk and returns it in a dictionary, along with the config"""
+
+    # Loading Data
+    df_train = pd.read_hdf(
+        os.path.join(dir_path, f"{config.spatial_scale}.h5"),
+        key=f"{config.location}/{config.temp_resolution}min/train_target",
+    )
+    df_val = pd.read_hdf(
+        os.path.join(dir_path, f"{config.spatial_scale}.h5"),
+        key=f"{config.location}/{config.temp_resolution}min/val_target",
+    )
+    df_test = pd.read_hdf(
+        os.path.join(dir_path, f"{config.spatial_scale}.h5"),
+        key=f"{config.location}/{config.temp_resolution}min/test_target",
+    )
+
+    df_cov_train = pd.read_hdf(
+        os.path.join(dir_path, f"{config.spatial_scale}.h5"),
+        key=f"{config.location}/{config.temp_resolution}min/train_cov",
+    )
+    df_cov_val = pd.read_hdf(
+        os.path.join(dir_path, f"{config.spatial_scale}.h5"),
+        key=f"{config.location}/{config.temp_resolution}min/val_cov",
+    )
+    df_cov_test = pd.read_hdf(
+        os.path.join(dir_path, f"{config.spatial_scale}.h5"),
+        key=f"{config.location}/{config.temp_resolution}min/test_cov",
+    )
+
+    data = {
+        "trg": (df_train, df_val, df_test),
+        "cov": (df_cov_train, df_cov_val, df_cov_test),
+    }
+
+    return data
+
+
+def derive_config_params(config):
+    if config.temp_resolution == 60:
+        timestep_encoding = ["hour"]
+    elif config.temp_resolution == 15:
+        timestep_encoding = ["quarter"]
+    else:
+        timestep_encoding = ["hour", "minute"]
+
+    datetime_encoders = {
+        "cyclic": {"future": timestep_encoding},
+        "datetime_attribute": {"future": config.datetime_attributes},
+    }
+
+    datetime_encoders = datetime_encoders if config.datetime_encodings else None
+    config["datetime_encoders"] = datetime_encoders
+    config.timesteps_per_hour = int(60 / config.temp_resolution)
+    # input and output length for models
+    config.n_lags = config.lookback_in_hours * config.timesteps_per_hour
+    config.n_ahead = config.horizon_in_hours * config.timesteps_per_hour
+    # evaluation stride, how often to evaluate the model, in this case we evaluate every n_ahead steps
+    config.eval_stride = int(np.sqrt(config.n_ahead))
+    return config

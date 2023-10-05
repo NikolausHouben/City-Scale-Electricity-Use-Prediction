@@ -3,7 +3,7 @@
 import os
 from functools import wraps
 from inspect import signature
-from typing import Callable, Optional, Sequence, Tuple, Union
+from typing import Callable, Optional, Sequence, Tuple, Union, List, Dict
 
 import numpy as np
 import pandas as pd
@@ -14,23 +14,30 @@ from darts.logging import get_logger, raise_if_not, raise_log
 from darts.utils import _build_tqdm_iterator, _parallel_apply
 from darts.metrics import rmse, mse, mape, mae, r2_score, smape
 from darts import TimeSeries
-from darts.metrics.metrics import multivariate_support, multi_ts_support, _get_values, _get_values_or_raise
+from darts.metrics.metrics import (
+    multivariate_support,
+    multi_ts_support,
+    _get_values,
+    _get_values_or_raise,
+)
 
 from utils import (
     make_index_same,
     ts_list_concat_new,
     get_df_diffs,
     get_df_compares_list,
-    ts_list_concat
+    ts_list_concat,
+    load_data,
+    derive_config_params,
+    get_longest_subseries_idx,
 )
 
-from train import data_pipeline
+from train import data_pipeline, Config
 
 dir_path = os.path.join(os.path.dirname(os.getcwd()), "data", "clean_data")
 
 
 logger = get_logger(__name__)
-
 
 
 @multi_ts_support
@@ -85,7 +92,7 @@ def max_peak_error(
     """
 
     y1, y2 = _get_values_or_raise(
-        actual_series, pred_series, intersect, remove_nan_union=True # type: ignore
+        actual_series, pred_series, intersect, remove_nan_union=True  # type: ignore
     )
 
     y1_max = np.max(y1)
@@ -148,7 +155,7 @@ def mean_n_peak_error(
     """
 
     y1, y2 = _get_values_or_raise(
-        actual_series, pred_series, intersect, remove_nan_union=True # type: ignore
+        actual_series, pred_series, intersect, remove_nan_union=True  # type: ignore
     )
 
     y1_sorted_indices = np.argsort(
@@ -242,42 +249,47 @@ def predict_testset(model, ts, ts_covs, n_lags, n_ahead, eval_stride, pipeline):
     return ts_predictions_inverse.pd_series().to_frame("prediction"), score
 
 
+def evaluate(init_config: Dict, models_dict: Dict):
+    """
+    Loads existing run results (from wandb, TODO) if they exist,
+    otherwise runs a backtest for each model on the val and test set, and then formats it into the various horizons
 
+    """
+    config = Config().from_dict(init_config)
+    data = load_data(config)
 
+    config = derive_config_params(config)
 
-def evaluate(config, models_dict):
+    piped_data, pipeline = data_pipeline(config, data)
 
-    '''
-        Loads existing run results (from wandb, TODO) if they exist, 
-        otherwise runs a backtest for each model on the val and test set, and then formats it into the various horizons
-        
-    '''
     (
-        pipeline,
         ts_train_piped,
         ts_val_piped,
         ts_test_piped,
         ts_train_weather_piped,
         ts_val_weather_piped,
         ts_test_weather_piped,
-        trg_train_inversed,
-        trg_val_inversed,
-        trg_test_inversed,
-    ) = data_pipeline(config)
+    ) = piped_data
+
+    trg_val_inversed = pipeline.inverse_transform(ts_val_piped)
+    trg_test_inversed = pipeline.inverse_transform(ts_test_piped)
+
+    longest_ts_val_idx = get_longest_subseries_idx(ts_val_piped)
+    longest_ts_test_idx = get_longest_subseries_idx(ts_test_piped)
 
     test_sets = {  # see data_prep.ipynb for the split
         "Winter": (
-            ts_val_piped[config.longest_ts_val_idx],
+            ts_val_piped[longest_ts_val_idx],
             None
-            if not config.weather
-            else ts_val_weather_piped[config.longest_ts_val_idx], # type: ignore
+            if not config.weather_available
+            else ts_val_weather_piped[longest_ts_val_idx],  # type: ignore
             trg_val_inversed,
         ),
         "Summer": (
-            ts_test_piped[config.longest_ts_test_idx],
+            ts_test_piped[longest_ts_test_idx],
             None
-            if not config.weather
-            else ts_test_weather_piped[config.longest_ts_test_idx], # type: ignore
+            if not config.weather_available
+            else ts_test_weather_piped[longest_ts_test_idx],  # type: ignore
             trg_test_inversed,
         ),
     }
@@ -290,12 +302,12 @@ def evaluate(config, models_dict):
 
 
 def backtesting(models_dict, pipeline, test_sets, config):
-    '''
+    """
     This function runs the backtesting used in the 'evaluate' function.
-    Takes in models, runs them on on the test sets (summer & winter) 
+    Takes in models, runs them on on the test sets (summer & winter)
     and returns the predictions and the ground truth in a dictionary for each model, and season
-    
-    '''
+
+    """
     dict_result_season = {}
     for season, (ts, ts_cov, gt) in test_sets.items():
         print(f"Testing on {season} data")
@@ -360,7 +372,6 @@ def extract_forecasts_per_horizon(config, dict_result_season):
 
 
 def get_run_results(dict_result_n_ahead, config):
-    
     df_metrics = error_metrics_table(dict_result_n_ahead, config)
 
     side_by_side(dict_result_n_ahead, config)
@@ -392,7 +403,9 @@ def error_metrics_table(dict_result_n_ahead, config):
     for n_ahead, dict_result_season in dict_result_n_ahead.items():
         for season, (_, preds_per_model, gt) in dict_result_season.items():
             df_metrics = get_error_metric_table(list_metrics, preds_per_model, gt)
-            rmse_persistence = df_metrics.iloc[[-1], :]['rmse'].values[0] # the last row is the X-hour persistence model specified in the training
+            rmse_persistence = df_metrics.iloc[[-1], :]["rmse"].values[
+                0
+            ]  # the last row is the X-hour persistence model specified in the training
             df_metrics.drop(labels=[config.model_names[-1]], axis=0, inplace=True)
             df_metrics.reset_index(inplace=True)
             df_metrics["season"] = season
@@ -411,7 +424,6 @@ def error_metrics_table(dict_result_n_ahead, config):
         wandb.log({f"Error metrics": wandb.Table(dataframe=df_metrics)})
     except:
         print("Wandb is not initialized, skipping logging")
-
 
     return df_metrics
 
@@ -432,7 +444,7 @@ def side_by_side(dict_result_n_ahead, config):
         key=f"{config.location}/{config.temp_resolution}min/test_cov",
     )
 
-    temp_data = {"Summer": df_cov_test.iloc[:, 0], "Winter": df_cov_val.iloc[:, 0]} # type: ignore
+    temp_data = {"Summer": df_cov_test.iloc[:, 0], "Winter": df_cov_val.iloc[:, 0]}  # type: ignore
 
     for n_ahead, dict_result_season in dict_result_n_ahead.items():
         for season, (_, preds_per_model, gt) in dict_result_season.items():
@@ -505,7 +517,7 @@ def error_metric_trajectory(dict_result_n_ahead, config):
         for model_name, historics in historics_per_model.items():
             df_list = get_df_compares_list(historics, gt)
             diffs = get_df_diffs(df_list)
-            df_smapes = abs(diffs).mean(axis=1) # type: ignore
+            df_smapes = abs(diffs).mean(axis=1)  # type: ignore
             df_smapes.columns = [model_name]
             df_rmse = np.square(diffs).mean(axis=1)
             df_rmse.columns = [model_name]
@@ -532,7 +544,9 @@ def error_metric_trajectory(dict_result_n_ahead, config):
             f"Mean Absolute Percentage Error of the Historical Forecasts in {season}"
         )
         try:
-            wandb.log({f"MAPE of the Historical Forecasts in {season}": wandb.Image(fig)})
+            wandb.log(
+                {f"MAPE of the Historical Forecasts in {season}": wandb.Image(fig)}
+            )
         except:
             print("Wandb is not initialized, skipping logging")
             plt.show()
@@ -545,12 +559,12 @@ def error_metric_trajectory(dict_result_n_ahead, config):
         plt.legend(loc="upper left", ncol=2)
         plt.title(f"Root Mean Squared Error of the Historical Forecasts in {season}")
         try:
-            wandb.log({f"RMSE of the Historical Forecasts in {season}": wandb.Image(fig)})
+            wandb.log(
+                {f"RMSE of the Historical Forecasts in {season}": wandb.Image(fig)}
+            )
         except:
             print("Wandb is not initialized, skipping logging")
             plt.show()
-
-
 
 
 def error_distribution(dict_result_n_ahead, config):
@@ -607,7 +621,7 @@ def daily_sum(dict_result_n_ahead, config):
         plt.legend(loc="upper right", ncol=2)
         plt.ylabel(f"Energy [{config.unit}h]")
         plt.title(f"Daily Sum of the Predictions and the Ground Truth in {season}")
-        
+
         try:
             wandb.log(
                 {

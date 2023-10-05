@@ -17,10 +17,11 @@ import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler, RobustScaler
 from utils import (
     review_subseries,
-    get_longest_subseries_idx,
     load_trained_models,
     save_models_to_disk,
     check_if_torch_model,
+    derive_config_params,
+    load_data,
 )
 
 import darts
@@ -175,7 +176,7 @@ def get_model(config):
     if model_abbr == "xgb":
         model_class = XGBModel
         xgb_kwargs = {
-            "early_stopping_rounds": 5,
+            "early_stopping_rounds": 2,
             "eval_metric": "rmse",
             "verbosity": 1,
         }
@@ -357,69 +358,7 @@ def get_best_run_config(project_name, metric, model, scale):
     return config, name
 
 
-def load_data(config):
-    """Loads the data from disk and returns it in a dictionary, along with the config"""
-
-    # Loading Data
-    df_train = pd.read_hdf(
-        os.path.join(dir_path, f"{config.spatial_scale}.h5"),
-        key=f"{config.location}/{config.temp_resolution}min/train_target",
-    )
-    df_val = pd.read_hdf(
-        os.path.join(dir_path, f"{config.spatial_scale}.h5"),
-        key=f"{config.location}/{config.temp_resolution}min/val_target",
-    )
-    df_test = pd.read_hdf(
-        os.path.join(dir_path, f"{config.spatial_scale}.h5"),
-        key=f"{config.location}/{config.temp_resolution}min/test_target",
-    )
-
-    df_cov_train = pd.read_hdf(
-        os.path.join(dir_path, f"{config.spatial_scale}.h5"),
-        key=f"{config.location}/{config.temp_resolution}min/train_cov",
-    )
-    df_cov_val = pd.read_hdf(
-        os.path.join(dir_path, f"{config.spatial_scale}.h5"),
-        key=f"{config.location}/{config.temp_resolution}min/val_cov",
-    )
-    df_cov_test = pd.read_hdf(
-        os.path.join(dir_path, f"{config.spatial_scale}.h5"),
-        key=f"{config.location}/{config.temp_resolution}min/test_cov",
-    )
-
-    data = {
-        "trg": (df_train, df_val, df_test),
-        "cov": (df_cov_train, df_cov_val, df_cov_test),
-    }
-
-    return data
-
-
-def derive_config_params(config):
-    if config.temp_resolution == 60:
-        timestep_encoding = ["hour"]
-    elif config.temp_resolution == 15:
-        timestep_encoding = ["quarter"]
-    else:
-        timestep_encoding = ["hour", "minute"]
-
-    datetime_encoders = {
-        "cyclic": {"future": timestep_encoding},
-        "datetime_attribute": {"future": config.datetime_attributes},
-    }
-
-    datetime_encoders = datetime_encoders if config.datetime_encodings else None
-    config["datetime_encoders"] = datetime_encoders
-    config.timesteps_per_hour = int(60 / config.temp_resolution)
-    # input and output length for models
-    config.n_lags = config.lookback_in_hours * config.timesteps_per_hour
-    config.n_ahead = config.horizon_in_hours * config.timesteps_per_hour
-    # evaluation stride, how often to evaluate the model, in this case we evaluate every n_ahead steps
-    config.eval_stride = int(np.sqrt(config.n_ahead))
-    return config
-
-
-def data_pipeline(data, config):
+def data_pipeline(config, data):
     trg, cov = data["trg"], data["cov"]
     df_train, df_val, df_test = trg
     df_cov_train, df_cov_val, df_cov_test = cov
@@ -476,11 +415,6 @@ def data_pipeline(data, config):
     ts_test, ts_cov_test = review_subseries(
         ts_test, config.n_lags + config.n_ahead, ts_cov_test
     )
-
-    # getting the index of the longest subseries, to be used for evaluation later,
-    # TODO: remove this so all of the data is used for evaluation
-    config.longest_ts_val_idx = get_longest_subseries_idx(ts_val)
-    config.longest_ts_test_idx = get_longest_subseries_idx(ts_test)
 
     # Preprocessing Pipeline, global fit is important to turn on because we have split the entire ts into multiple timeseries at nans
     # but want to use the same params for all of them
@@ -543,7 +477,7 @@ def train_models(config, untrained_models, config_per_model):
 
         model_config = config_per_model[model_abbr]
 
-        piped_data, _ = data_pipeline(data, model_config)
+        piped_data, _ = data_pipeline(model_config, data)
 
         (
             ts_train_piped,
