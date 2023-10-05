@@ -42,8 +42,7 @@ def create_directory(directory_path):
 
 
 def save_models_to_disk(config, models_dict):
-    model_dir = os.path.join(os.getcwd(), "models")
-
+    
     create_directory(model_dir)
     for model in models_dict.keys():
         model_path = os.path.join(
@@ -515,8 +514,6 @@ def remove_outliers(df, column, lower_percentile=0, upper_percentile=100):
     df_filtered = df[(df[column] >= lower_threshold) & (df[column] <= upper_threshold)]
     return df_filtered
 
-
-import pandas as pd
 
 
 def plot_location_splits(dir_path):

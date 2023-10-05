@@ -8,6 +8,7 @@ import time
 import json
 import argparse
 import inspect
+from typing import List, Dict
 
 
 import plotly.express as px
@@ -35,6 +36,7 @@ from darts.models import (
     BlockRNNModel,
     NBEATSModel,
     TFTModel,
+    TiDEModel
 )
 
 import wandb
@@ -45,6 +47,8 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 root_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 dir_path = os.path.join(root_path, "data", "clean_data")
+
+units_dict = {"county": "GW", "town": "MW", "village": "kW", "neighborhood": "kW"}
 
 
 class Config:
@@ -150,7 +154,7 @@ def get_model(config):
         optimizer_kwargs["lr"] = 1e-3
 
     pl_trainer_kwargs = {
-        "max_epochs": 2,
+        "max_epochs": 20,
         "accelerator": "gpu",
         "devices": [0],
         "callbacks": [EarlyStopping(monitor="val_loss", patience=5, mode="min")],
@@ -259,6 +263,25 @@ def get_model(config):
             lr_scheduler_kwargs=schedule_kwargs,
             random_state=42,
         )
+    
+    elif model_abbr == "tide":
+        model_class = TiDEModel
+
+        kwargs = initialize_kwargs(config, model_class)
+
+        model = model_class(
+            input_chunk_length=config.n_lags,
+            output_chunk_length=config.n_ahead,
+            add_encoders=config.datetime_encoders,
+            likelihood=config.liklihood,
+            pl_trainer_kwargs=pl_trainer_kwargs,
+            optimizer_kwargs=optimizer_kwargs,
+            lr_scheduler_cls=ReduceLROnPlateau,
+            lr_scheduler_kwargs=schedule_kwargs,
+            random_state=42,
+        ) 
+
+
 
     else:
         model = None
@@ -267,7 +290,10 @@ def get_model(config):
     return model
 
 
-def get_model_instances(tuned_models, config_per_model):
+
+
+
+def get_model_instances(tuned_models: List, config_per_model:Dict)->Dict:
     """Returns a list of model instances for the models that were tuned and appends a linear regression model."""
 
     model_instances = {}
@@ -291,32 +317,34 @@ def get_model_instances(tuned_models, config_per_model):
     return model_instances
 
 
-def get_best_run_config(project_name, metric, model, scale, location):
+def get_best_run_config(project_name, metric, model, scale):
     """
 
     Returns the config of the best run of a sweep for a given model and location.
 
     """
 
-    sweeps = []
-    config = None
-    name = None
 
     api = wandb.Api()
+    sweeps = []
     for project in api.projects():
         if project_name == project.name:
             sweeps = project.sweeps()
 
+    config = None
+    name = None
     for sweep in sweeps:
-        if model in sweep.name and scale in sweep.name:  # and location in sweep.name:
+        if model in sweep.name and scale in sweep.name:
             best_run = sweep.best_run(order=metric)
             config = best_run.config
             name = best_run.name
+            print(f"Fetched sweep with name {name} for model {model}")
 
     if config == None:
         print(
             f"Could not find a sweep for model {model} and scale {scale} in project {project_name}."
         )
+        config = Config()
 
     return config, name
 
@@ -331,11 +359,6 @@ def data_pipeline(config):
 
     datetime_encoders = {
         "cyclic": {"future": timestep_encoding},
-        # "position": {
-        #     "future": [
-        #         "relative",
-        #     ]
-        # },
         "datetime_attribute": {"future": ["dayofweek", "week"]},
     }
 
@@ -364,30 +387,32 @@ def data_pipeline(config):
         key=f"{config.location}/{config.temp_resolution}min/test_target",
     )
 
-    df_cov_train = pd.read_hdf(
-        os.path.join(dir_path, f"{config.spatial_scale}.h5"),
-        key=f"{config.location}/{config.temp_resolution}min/train_cov",
-    )
-    df_cov_val = pd.read_hdf(
-        os.path.join(dir_path, f"{config.spatial_scale}.h5"),
-        key=f"{config.location}/{config.temp_resolution}min/val_cov",
-    )
-    df_cov_test = pd.read_hdf(
-        os.path.join(dir_path, f"{config.spatial_scale}.h5"),
-        key=f"{config.location}/{config.temp_resolution}min/test_cov",
-    )
+    
+    if config.weather_available:
+        df_cov_train = pd.read_hdf(
+            os.path.join(dir_path, f"{config.spatial_scale}.h5"),
+            key=f"{config.location}/{config.temp_resolution}min/train_cov",
+        )
+        df_cov_val = pd.read_hdf(
+            os.path.join(dir_path, f"{config.spatial_scale}.h5"),
+            key=f"{config.location}/{config.temp_resolution}min/val_cov",
+        )
+        df_cov_test = pd.read_hdf(
+            os.path.join(dir_path, f"{config.spatial_scale}.h5"),
+            key=f"{config.location}/{config.temp_resolution}min/test_cov",
+        )
 
-    # Heat wave covariate, categorical variable
-    if config.heat_wave_binary:
-        df_cov_train["heat_wave"] = df_cov_train[
-            df_cov_train.columns[0]
-        ] > df_cov_train[df_cov_train.columns[0]].quantile(0.95)
-        df_cov_val["heat_wave"] = df_cov_val[df_cov_val.columns[0]] > df_cov_val[
-            df_cov_val.columns[0]
-        ].quantile(0.95)
-        df_cov_test["heat_wave"] = df_cov_test[df_cov_test.columns[0]] > df_cov_test[
-            df_cov_test.columns[0]
-        ].quantile(0.95)
+        # Heat wave covariate, categorical variable
+        if config.heat_wave_binary:
+            df_cov_train["heat_wave"] = df_cov_train[
+                df_cov_train.columns[0]
+            ] > df_cov_train[df_cov_train.columns[0]].quantile(0.95)
+            df_cov_val["heat_wave"] = df_cov_val[df_cov_val.columns[0]] > df_cov_val[
+                df_cov_val.columns[0]
+            ].quantile(0.95)
+            df_cov_test["heat_wave"] = df_cov_test[df_cov_test.columns[0]] > df_cov_test[
+                df_cov_test.columns[0]
+            ].quantile(0.95)
 
     # into darts format
     ts_train = darts.TimeSeries.from_dataframe(
@@ -404,7 +429,7 @@ def data_pipeline(config):
     ts_test = extract_subseries(ts_test)
 
     # Covariates
-    if config.weather:
+    if config.weather_available:
         ts_cov_train = darts.TimeSeries.from_dataframe(
             df_cov_train, freq=str(config.temp_resolution) + "min"  # type: ignore
         )
@@ -453,7 +478,7 @@ def data_pipeline(config):
     ts_test_piped = pipeline.transform(ts_test)
 
     # Weather Pipeline
-    if config.weather:
+    if config.weather_available:
         pipeline_weather = Pipeline([Scaler(RobustScaler(), global_fit=True)])
         ts_train_weather_piped = pipeline_weather.fit_transform(ts_cov_train)
         ts_val_weather_piped = pipeline_weather.transform(ts_cov_val)
@@ -485,14 +510,7 @@ def data_pipeline(config):
     )
 
 
-def train_models(
-    models: list,
-    ts_train_piped,
-    ts_train_weather_piped=None,
-    ts_val_piped=None,
-    ts_val_weather_piped=None,
-    use_cov_as_past=False,
-):
+def train_models(model_instances, config_per_model):
     """
     This function does the actual training and is used by 'training'.
     Takes in a list of models on the training data and validates them on the validation data if it is available.
@@ -500,6 +518,8 @@ def train_models(
     Returns the trained models and the runtimes.
 
     """
+
+    models = model_instances.values()
 
     run_times = {}
 
@@ -540,26 +560,25 @@ def train_models(
 # experiments
 
 
-def training(scale, location, tuned_models):
+def training(init_config):
     """Loads existing models (from disk) if they exist, otherwise trains new models with optimial hyperparameters (from wandb) if they exist"""
 
-    units_dict = {"county": "GW", "town": "MW", "village": "kW", "neighborhood": "kW"}
-    resolution = 60
+    init_config = Config().from_dict(init_config)
+    tuned_models = init_config.tuned_models
+    scale = init_config.spatial_scale
+    location = init_config.location
+    resolution = init_config.temp_resolution
 
+    
     config_per_model = {}
     for model in tuned_models:
         config, name = get_best_run_config(
-            "Wattcast_tuning", "-eval_loss", model, scale, location
+            "Wattcast_tuning", "-eval_loss", model, scale
         )
-        print(f"Fetched sweep with name {name} for model {model}")
-        config["horizon_in_hours"] = 48  # type: ignore
-        config["location"] = location  # type: ignore
         config_per_model[model] = config, name
 
     name_id = scale + "_" + location + "_" + str(resolution) + "min"
     wandb.init(project="Portland_AMI", name=name_id, id=name_id)
-
-    config = Config().from_dict(config_per_model[tuned_models[0]][0])
 
     (
         pipeline,
@@ -572,19 +591,21 @@ def training(scale, location, tuned_models):
         trg_train_inversed,
         trg_val_inversed,
         trg_test_inersed,
-    ) = data_pipeline(config)
+    ) = data_pipeline(init_config)
 
     model_instances = get_model_instances(tuned_models, config_per_model)
 
-    trained_models, model_instances = load_trained_models(config, model_instances)
+    trained_models, model_instances_to_train = load_trained_models(init_config, model_instances)
 
     if len(model_instances) > 0:
+        
         just_trained_models, run_times = train_models(
-            model_instances.values(),  # type: ignore
+            model_instances_to_train,
+            config_per_model,
             ts_train_piped,
-            ts_train_weather_piped if config.weather else None,
+            ts_train_weather_piped,
             ts_val_piped,
-            ts_val_weather_piped if config.weather else None,
+            ts_val_weather_piped,
         )
 
         df_runtimes = pd.DataFrame.from_dict(
@@ -594,15 +615,14 @@ def training(scale, location, tuned_models):
         trained_models.extend(just_trained_models)
 
     models_dict = {model.__class__.__name__: model for model in trained_models}
-    save_models_to_disk(config, models_dict)
+    save_models_to_disk(init_config, models_dict)
 
-    config.model_names = list(models_dict.keys())
+    init_config.model_names = list(models_dict.keys())
+    init_config.unit = units_dict[scale.split("_")[1]]
 
-    config.unit = units_dict[scale.split("_")[1]]
+    wandb.config.update(init_config.data)
 
-    wandb.config.update(config.data)
-
-    return config, models_dict
+    return init_config, models_dict
 
 
 if __name__ == "__main__":
@@ -613,6 +633,19 @@ if __name__ == "__main__":
     parser.add_argument("--tuned_models", nargs="+", type=str, default=["xgb", "lgbm"])
     args = parser.parse_args()
 
+    init_config =  {
+    'spatial_scale': args.scale,
+    'temp_resolution': 60,
+    'location': args.location,
+    'tuned_models': args.tuned_models,
+    'horizon_in_hours': 24,
+    'lookback_in_hours': 24,
+    'boxcox': True,
+    'liklihood': None,
+    'weather': True,
+    'datetime_encodings': True,
+    'heat_wave_binary': True}
+
     wandb.login()
-    config, models_dict = training(args.scale, args.location, args.tuned_models)
+    config, models_dict = training(init_config)
     wandb.finish()
