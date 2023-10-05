@@ -17,6 +17,8 @@ from darts.utils.missing_values import fill_missing_values
 import h5py
 import wandb
 
+from typing import List
+
 
 root_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 model_dir = os.path.join(root_path, "models")
@@ -41,16 +43,15 @@ def create_directory(directory_path):
         print(f"Directory already exists: {directory_path}")
 
 
-def save_models_to_disk(config, models_dict):
-    
+def save_models_to_disk(config, newly_trained_models: List):
     create_directory(model_dir)
-    for model in models_dict.keys():
+    for model in newly_trained_models:
         model_path = os.path.join(
             model_dir, config.spatial_scale + "_" + config.location
         )
         create_directory(model_path)
         print(model_dir)
-        models_dict[model].save(os.path.join(model_path, model + ".joblib"))
+        model.save(os.path.join(model_path, model.__class__.__name__ + ".joblib"))
 
 
 def check_if_torch_model(obj):
@@ -513,7 +514,6 @@ def remove_outliers(df, column, lower_percentile=0, upper_percentile=100):
     upper_threshold = df[column].quantile(upper_percentile / 100)
     df_filtered = df[(df[column] >= lower_threshold) & (df[column] <= upper_threshold)]
     return df_filtered
-
 
 
 def plot_location_splits(dir_path):

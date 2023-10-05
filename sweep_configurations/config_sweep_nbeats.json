@@ -44,7 +44,7 @@
                 0.2
             ]
         },
-        "lr": {
+        "learning_rate": {
             "values": [
                 0.0003,
                 0.001,
@@ -64,8 +64,7 @@
                 0
             ]
         },
-        "lookback_in_hours":
-        {
+        "lookback_in_hours": {
             "values": [
                 12,
                 24,

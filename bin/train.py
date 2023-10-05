@@ -36,7 +36,7 @@ from darts.models import (
     BlockRNNModel,
     NBEATSModel,
     TFTModel,
-    TiDEModel
+    TiDEModel,
 )
 
 import wandb
@@ -109,13 +109,17 @@ def initialize_kwargs(config, model_class, additional_kwargs=None):
     model_name = config.model
     is_torch_model = check_if_torch_model(
         model_class
-    )  # we will handle torch models a bit differently here
+    )  # we will handle torch models a bit differently than sklearn-API type models
 
     sweep_path = os.path.join(
         root_path, "sweep_configurations", f"config_sweep_{model_name}.json"
     )
-    with open(sweep_path) as f:
-        sweep_config = json.load(f)["parameters"]
+    try:
+        with open(sweep_path) as f:
+            sweep_config = json.load(f)["parameters"]
+    except:
+        sweep_config = {}
+        print(f"Could not find sweep config for model {model_name}")
 
     kwargs = {k: config.__getitem__(k) for k in sweep_config.keys()}
 
@@ -125,18 +129,22 @@ def initialize_kwargs(config, model_class, additional_kwargs=None):
     if is_torch_model:
         valid_keywords = list(
             set(list(inspect.signature(model_class.__init__).parameters.keys())[1:])
-            & set(config.keys())
+            & set(kwargs.keys())
         )
         kwargs = {key: value for key, value in kwargs.items() if key in valid_keywords}
 
     else:
+        print(f"Initializing kwargs for sklearn-API type model {model_name}...")
         m = model_class(
             lags=config.n_lags
         )  # need to initialize the model to get the available params, we will not use this model
         params = m.model.get_params()
-        valid_keywords = list(set(params.keys()) & set(config.keys()))
+
+        valid_keywords = list(set(params.keys()) & set(kwargs.keys()))
+
         kwargs = {key: value for key, value in kwargs.items() if key in valid_keywords}
 
+    print(valid_keywords)
     return kwargs
 
 
@@ -149,7 +157,7 @@ def get_model(config):
 
     optimizer_kwargs = {}
     try:
-        optimizer_kwargs["lr"] = config.lr
+        optimizer_kwargs["lr"] = config.learning_rate
     except:
         optimizer_kwargs["lr"] = 1e-3
 
@@ -166,7 +174,11 @@ def get_model(config):
     # ==== Tree-based models ====
     if model_abbr == "xgb":
         model_class = XGBModel
-        xgb_kwargs = {"early_stopping_rounds": 20, "eval_metric": "rmse", "verbose": 10}
+        xgb_kwargs = {
+            "early_stopping_rounds": 5,
+            "eval_metric": "rmse",
+            "verbosity": 1,
+        }
         kwargs = initialize_kwargs(config, model_class, additional_kwargs=xgb_kwargs)
 
         model = model_class(
@@ -263,7 +275,7 @@ def get_model(config):
             lr_scheduler_kwargs=schedule_kwargs,
             random_state=42,
         )
-    
+
     elif model_abbr == "tide":
         model_class = TiDEModel
 
@@ -279,9 +291,7 @@ def get_model(config):
             lr_scheduler_cls=ReduceLROnPlateau,
             lr_scheduler_kwargs=schedule_kwargs,
             random_state=42,
-        ) 
-
-
+        )
 
     else:
         model = None
@@ -290,21 +300,18 @@ def get_model(config):
     return model
 
 
-
-
-
-def get_model_instances(tuned_models: List, config_per_model:Dict)->Dict:
+def get_model_instances(models: List, config_per_model: Dict) -> Dict:
     """Returns a list of model instances for the models that were tuned and appends a linear regression model."""
 
     model_instances = {}
-    for model in tuned_models:
+    for model in models:
         print("Getting model instance for " + model + "...")
-        config = Config().from_dict(config_per_model[model][0])
+        config = Config().from_dict(config_per_model[model])
         model_instances[model] = get_model(config)
 
     # since we did not optimize the hyperparameters for the linear regression model, we need to create a new instance
     print("Getting model instance for linear regression...")
-    config = Config().from_dict(config_per_model[tuned_models[0]][0])
+    config = config_per_model[models[0]]
     lr_model = LinearRegressionModel(
         lags=config.n_lags,
         lags_future_covariates=[0],
@@ -324,7 +331,6 @@ def get_best_run_config(project_name, metric, model, scale):
 
     """
 
-
     api = wandb.Api()
     sweeps = []
     for project in api.projects():
@@ -337,6 +343,7 @@ def get_best_run_config(project_name, metric, model, scale):
         if model in sweep.name and scale in sweep.name:
             best_run = sweep.best_run(order=metric)
             config = best_run.config
+            config = Config().from_dict(config)
             name = best_run.name
             print(f"Fetched sweep with name {name} for model {model}")
 
@@ -345,33 +352,13 @@ def get_best_run_config(project_name, metric, model, scale):
             f"Could not find a sweep for model {model} and scale {scale} in project {project_name}."
         )
         config = Config()
+        config.model = model
 
     return config, name
 
 
-def data_pipeline(config):
-    if config.temp_resolution == 60:
-        timestep_encoding = ["hour"]
-    elif config.temp_resolution == 15:
-        timestep_encoding = ["quarter"]
-    else:
-        timestep_encoding = ["hour", "minute"]
-
-    datetime_encoders = {
-        "cyclic": {"future": timestep_encoding},
-        "datetime_attribute": {"future": ["dayofweek", "week"]},
-    }
-
-    datetime_encoders = datetime_encoders if config.datetime_encodings else None
-
-    config["datetime_encoders"] = datetime_encoders
-
-    config.timesteps_per_hour = int(60 / config.temp_resolution)
-    config.n_lags = config.lookback_in_hours * config.timesteps_per_hour
-    config.n_ahead = config.horizon_in_hours * config.timesteps_per_hour
-    config.eval_stride = int(
-        np.sqrt(config.n_ahead)
-    )  # evaluation stride, how often to evaluate the model, in this case we evaluate every n_ahead steps
+def load_data(config):
+    """Loads the data from disk and returns it in a dictionary, along with the config"""
 
     # Loading Data
     df_train = pd.read_hdf(
@@ -387,32 +374,67 @@ def data_pipeline(config):
         key=f"{config.location}/{config.temp_resolution}min/test_target",
     )
 
-    
-    if config.weather_available:
-        df_cov_train = pd.read_hdf(
-            os.path.join(dir_path, f"{config.spatial_scale}.h5"),
-            key=f"{config.location}/{config.temp_resolution}min/train_cov",
-        )
-        df_cov_val = pd.read_hdf(
-            os.path.join(dir_path, f"{config.spatial_scale}.h5"),
-            key=f"{config.location}/{config.temp_resolution}min/val_cov",
-        )
-        df_cov_test = pd.read_hdf(
-            os.path.join(dir_path, f"{config.spatial_scale}.h5"),
-            key=f"{config.location}/{config.temp_resolution}min/test_cov",
-        )
+    df_cov_train = pd.read_hdf(
+        os.path.join(dir_path, f"{config.spatial_scale}.h5"),
+        key=f"{config.location}/{config.temp_resolution}min/train_cov",
+    )
+    df_cov_val = pd.read_hdf(
+        os.path.join(dir_path, f"{config.spatial_scale}.h5"),
+        key=f"{config.location}/{config.temp_resolution}min/val_cov",
+    )
+    df_cov_test = pd.read_hdf(
+        os.path.join(dir_path, f"{config.spatial_scale}.h5"),
+        key=f"{config.location}/{config.temp_resolution}min/test_cov",
+    )
 
-        # Heat wave covariate, categorical variable
-        if config.heat_wave_binary:
-            df_cov_train["heat_wave"] = df_cov_train[
-                df_cov_train.columns[0]
-            ] > df_cov_train[df_cov_train.columns[0]].quantile(0.95)
-            df_cov_val["heat_wave"] = df_cov_val[df_cov_val.columns[0]] > df_cov_val[
-                df_cov_val.columns[0]
-            ].quantile(0.95)
-            df_cov_test["heat_wave"] = df_cov_test[df_cov_test.columns[0]] > df_cov_test[
-                df_cov_test.columns[0]
-            ].quantile(0.95)
+    data = {
+        "trg": (df_train, df_val, df_test),
+        "cov": (df_cov_train, df_cov_val, df_cov_test),
+    }
+
+    return data
+
+
+def derive_config_params(config):
+    if config.temp_resolution == 60:
+        timestep_encoding = ["hour"]
+    elif config.temp_resolution == 15:
+        timestep_encoding = ["quarter"]
+    else:
+        timestep_encoding = ["hour", "minute"]
+
+    datetime_encoders = {
+        "cyclic": {"future": timestep_encoding},
+        "datetime_attribute": {"future": config.datetime_attributes},
+    }
+
+    datetime_encoders = datetime_encoders if config.datetime_encodings else None
+    config["datetime_encoders"] = datetime_encoders
+    config.timesteps_per_hour = int(60 / config.temp_resolution)
+    # input and output length for models
+    config.n_lags = config.lookback_in_hours * config.timesteps_per_hour
+    config.n_ahead = config.horizon_in_hours * config.timesteps_per_hour
+    # evaluation stride, how often to evaluate the model, in this case we evaluate every n_ahead steps
+    config.eval_stride = int(np.sqrt(config.n_ahead))
+    return config
+
+
+def data_pipeline(data, config):
+    trg, cov = data["trg"], data["cov"]
+    df_train, df_val, df_test = trg
+    df_cov_train, df_cov_val, df_cov_test = cov
+
+    # Heat wave covariate, categorical variable
+    if config.heat_wave_binary:
+        df_cov_train["heat_wave"] = df_cov_train[
+            df_cov_train.columns[0]
+        ] > df_cov_train[df_cov_train.columns[0]].quantile(0.95)
+        df_cov_val["heat_wave"] = df_cov_val[df_cov_val.columns[0]] > df_cov_val[
+            df_cov_val.columns[0]
+        ].quantile(0.95)
+        df_cov_test["heat_wave"] = df_cov_test[df_cov_test.columns[0]] > df_cov_test[
+            df_cov_test.columns[0]
+        ].quantile(0.95)
 
     # into darts format
     ts_train = darts.TimeSeries.from_dataframe(
@@ -488,44 +510,50 @@ def data_pipeline(config):
         ts_val_weather_piped = None
         ts_test_weather_piped = None
 
-    trg_train_inversed = pipeline.inverse_transform(ts_train_piped, partial=True)
-    trg_val_inversed = pipeline.inverse_transform(ts_val_piped, partial=True)[
-        config.longest_ts_val_idx
-    ]
-    trg_test_inversed = pipeline.inverse_transform(ts_test_piped, partial=True)[
-        config.longest_ts_test_idx
-    ]
-
-    return (
-        pipeline,
+    piped_data = (
         ts_train_piped,
         ts_val_piped,
         ts_test_piped,
         ts_train_weather_piped,
         ts_val_weather_piped,
         ts_test_weather_piped,
-        trg_train_inversed,
-        trg_val_inversed,
-        trg_test_inversed,
     )
 
+    return piped_data, pipeline
 
-def train_models(model_instances, config_per_model):
+
+def train_models(config, untrained_models, config_per_model):
     """
     This function does the actual training and is used by 'training'.
     Takes in a list of models on the training data and validates them on the validation data if it is available.
 
-    Returns the trained models and the runtimes.
+    Returns the trained models and the runtimes (how long a model took to train).
 
     """
 
-    models = model_instances.values()
-
     run_times = {}
 
-    for model in models:
+    data = load_data(config)
+
+    models = []
+
+    for model_abbr, model in untrained_models.items():
         start_time = time.time()
         print(f"Training {model.__class__.__name__}")
+
+        model_config = config_per_model[model_abbr]
+
+        piped_data, _ = data_pipeline(data, model_config)
+
+        (
+            ts_train_piped,
+            ts_val_piped,
+            ts_test_piped,
+            ts_train_weather_piped,
+            ts_val_weather_piped,
+            ts_test_weather_piped,
+        ) = piped_data
+
         if model.supports_future_covariates:
             try:
                 model.fit(
@@ -536,7 +564,7 @@ def train_models(model_instances, config_per_model):
                 )
             except:
                 model.fit(ts_train_piped, future_covariates=ts_train_weather_piped)
-        elif use_cov_as_past and not model.supports_future_covariates:
+        elif model_config.use_cov_as_past_cov and not model.supports_future_covariates:
             try:
                 model.fit(
                     ts_train_piped,
@@ -552,6 +580,8 @@ def train_models(model_instances, config_per_model):
             except:
                 model.fit(ts_train_piped)
 
+        models.append(model)
+
         end_time = time.time()
         run_times[model.__class__.__name__] = end_time - start_time
     return models, run_times
@@ -560,67 +590,54 @@ def train_models(model_instances, config_per_model):
 # experiments
 
 
-def training(init_config):
+def training(init_config: Dict):
     """Loads existing models (from disk) if they exist, otherwise trains new models with optimial hyperparameters (from wandb) if they exist"""
 
-    init_config = Config().from_dict(init_config)
-    tuned_models = init_config.tuned_models
-    scale = init_config.spatial_scale
-    location = init_config.location
-    resolution = init_config.temp_resolution
+    config = Config().from_dict(init_config)
+    config = derive_config_params(config)
+    models_to_train = config.models_to_train
 
-    
+    # Importing hyperparameters from wandb for models that have previously been tuned
     config_per_model = {}
-    for model in tuned_models:
-        config, name = get_best_run_config(
-            "Wattcast_tuning", "-eval_loss", model, scale
+    config_per_model.update(
+        {"lr": config}
+    )  # add the default config to the config_per_model dict for linear regression
+    for model in models_to_train:
+        model_config, _ = get_best_run_config(
+            "Wattcast_tuning", "-eval_loss", model, config.spatial_scale
         )
-        config_per_model[model] = config, name
+        # update model_config with basic config if they are not yet in the keys of the model config
+        for key, value in config.data.items():
+            if key not in model_config.data.keys():
+                model_config[key] = value
 
-    name_id = scale + "_" + location + "_" + str(resolution) + "min"
-    wandb.init(project="Portland_AMI", name=name_id, id=name_id)
+        config_per_model[model] = model_config
 
-    (
-        pipeline,
-        ts_train_piped,
-        ts_val_piped,
-        ts_test_piped,
-        ts_train_weather_piped,
-        ts_val_weather_piped,
-        ts_test_weather_piped,
-        trg_train_inversed,
-        trg_val_inversed,
-        trg_test_inersed,
-    ) = data_pipeline(init_config)
+    # getting the model instances for all models
+    model_instances = get_model_instances(models_to_train, config_per_model)
 
-    model_instances = get_model_instances(tuned_models, config_per_model)
+    # loading the trained models from disk, which have been trained already
+    trained_models, untrained_models = load_trained_models(config, model_instances)
 
-    trained_models, model_instances_to_train = load_trained_models(init_config, model_instances)
-
-    if len(model_instances) > 0:
-        
-        just_trained_models, run_times = train_models(
-            model_instances_to_train,
-            config_per_model,
-            ts_train_piped,
-            ts_train_weather_piped,
-            ts_val_piped,
-            ts_val_weather_piped,
+    if len(untrained_models) > 0:
+        print(untrained_models.keys())
+        newly_trained_models, run_times = train_models(
+            config, untrained_models, config_per_model
         )
 
+        # dataframing and logging runtimes (how long each model took to train)
         df_runtimes = pd.DataFrame.from_dict(
             run_times, orient="index", columns=["runtime"]
         ).reset_index()
         wandb.log({"runtimes": wandb.Table(dataframe=df_runtimes)})
-        trained_models.extend(just_trained_models)
+        save_models_to_disk(config, newly_trained_models)
+        trained_models.extend(newly_trained_models)
 
     models_dict = {model.__class__.__name__: model for model in trained_models}
-    save_models_to_disk(init_config, models_dict)
+    config.model_names = list(models_dict.keys())
+    config.unit = units_dict[config.spatial_scale.split("_")[1]]
 
-    init_config.model_names = list(models_dict.keys())
-    init_config.unit = units_dict[scale.split("_")[1]]
-
-    wandb.config.update(init_config.data)
+    wandb.config.update(config.data)
 
     return init_config, models_dict
 
@@ -630,22 +647,39 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--scale", type=str, default="2_town")
     parser.add_argument("--location", type=str, default="GLENDOVEER-13596")
-    parser.add_argument("--tuned_models", nargs="+", type=str, default=["xgb", "lgbm"])
+    parser.add_argument("--models_to_train", nargs="+", type=str, default=["xgb", "rf"])
     args = parser.parse_args()
 
-    init_config =  {
-    'spatial_scale': args.scale,
-    'temp_resolution': 60,
-    'location': args.location,
-    'tuned_models': args.tuned_models,
-    'horizon_in_hours': 24,
-    'lookback_in_hours': 24,
-    'boxcox': True,
-    'liklihood': None,
-    'weather': True,
-    'datetime_encodings': True,
-    'heat_wave_binary': True}
+    init_config = {
+        "spatial_scale": args.scale,
+        "temp_resolution": 60,
+        "location": args.location,
+        "models_to_train": args.models_to_train,
+        "horizon_in_hours": 24,
+        "lookback_in_hours": 24,
+        "boxcox": True,
+        "liklihood": None,
+        "weather_available": True,
+        "datetime_encodings": True,
+        "heat_wave_binary": True,
+        "datetime_attributes": ["dayofweek", "week"],
+        "use_cov_as_past_cov": False,
+    }
 
     wandb.login()
+    # starting wandb run
+
+    name_id = (
+        init_config["spatial_scale"]
+        + "_"
+        + init_config["location"]
+        + "_"
+        + str(init_config["temp_resolution"])
+        + "min"
+    )
+    wandb.init(
+        project="Portland_AMI", name=name_id, id=name_id
+    )  # set id to continue existing runs
     config, models_dict = training(init_config)
+
     wandb.finish()
