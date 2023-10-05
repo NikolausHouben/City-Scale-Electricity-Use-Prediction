@@ -143,7 +143,6 @@ def initialize_kwargs(config, model_class, additional_kwargs=None):
 
         kwargs = {key: value for key, value in kwargs.items() if key in valid_keywords}
 
-    print(valid_keywords)
     return kwargs
 
 
@@ -547,6 +546,7 @@ def training(init_config: Dict):
         for key, value in config.data.items():
             if key not in model_config.data.keys():
                 model_config[key] = value
+        model_config.n_ahead = config.n_ahead # the sweeps were done for 24h ahead, but we want to train for 48h ahead
 
         config_per_model[model] = model_config
 
@@ -580,7 +580,7 @@ if __name__ == "__main__":
     # argparse scale and location
     parser = argparse.ArgumentParser()
     parser.add_argument("--scale", type=str, default="2_town")
-    parser.add_argument("--location", type=str, default="GLENDOVEER-13596")
+    parser.add_argument("--location", type=str, default="GLENDOVEER-13598")
     parser.add_argument("--models_to_train", nargs="+", type=str, default=["xgb", "rf"])
     args = parser.parse_args()
 
@@ -589,7 +589,7 @@ if __name__ == "__main__":
         "temp_resolution": 60,
         "location": args.location,
         "models_to_train": args.models_to_train,
-        "horizon_in_hours": 24,
+        "horizon_in_hours": 48,
         "lookback_in_hours": 24,
         "boxcox": True,
         "liklihood": None,
