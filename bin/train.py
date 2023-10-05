@@ -49,8 +49,6 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 root_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 dir_path = os.path.join(root_path, "data", "clean_data")
 
-units_dict = {"county": "GW", "town": "MW", "village": "kW", "neighborhood": "kW"}
-
 
 class Config:
     """
@@ -568,9 +566,6 @@ def training(init_config: Dict):
         trained_models.extend(newly_trained_models)
 
     models_dict = {model.__class__.__name__: model for model in trained_models}
-    config.model_names = list(models_dict.keys())
-    config.unit = units_dict[config.spatial_scale.split("_")[1]]
-
     wandb.config.update(config.data)
 
     return init_config, models_dict

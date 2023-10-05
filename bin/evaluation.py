@@ -31,11 +31,10 @@ from utils import (
     load_data,
     derive_config_params,
     get_longest_subseries_idx,
-    create_directory
+    create_directory,
 )
 
 from train import data_pipeline, Config
-
 
 
 dir_path = os.path.join(os.path.dirname(os.getcwd()), "data", "clean_data")
@@ -254,7 +253,6 @@ def predict_testset(model, ts, ts_covs, n_lags, n_ahead, eval_stride, pipeline):
     return ts_predictions_inverse.pd_series().to_frame("prediction"), score
 
 
-
 def evaluate(init_config: Dict, models_dict: Dict):
     """
     Loads existing run results (from wandb, TODO) if they exist,
@@ -267,7 +265,9 @@ def evaluate(init_config: Dict, models_dict: Dict):
     create_directory(evaluation_scale_path)
 
     try:
-        with open(os.path.join(evaluation_scale_path, f"{config.location}.pkl"), "rb") as f:
+        with open(
+            os.path.join(evaluation_scale_path, f"{config.location}.pkl"), "rb"
+        ) as f:
             dict_result_n_ahead = pickle.load(f)
         print(f"Existing evaluation for {config.location} found, loading...")
 
@@ -288,12 +288,13 @@ def evaluate(init_config: Dict, models_dict: Dict):
             ts_test_weather_piped,
         ) = piped_data
 
-
         longest_ts_val_idx = get_longest_subseries_idx(ts_val_piped)
         longest_ts_test_idx = get_longest_subseries_idx(ts_test_piped)
 
         trg_val_inversed = pipeline.inverse_transform(ts_val_piped)[longest_ts_val_idx]
-        trg_test_inversed = pipeline.inverse_transform(ts_test_piped)[longest_ts_test_idx]
+        trg_test_inversed = pipeline.inverse_transform(ts_test_piped)[
+            longest_ts_test_idx
+        ]
 
         test_sets = {  # see data_prep.ipynb for the split
             "Winter": (
@@ -324,7 +325,9 @@ def evaluate(init_config: Dict, models_dict: Dict):
         dict_result_season = backtesting(models_dict, pipeline, test_sets, config)
         dict_result_n_ahead = extract_forecasts_per_horizon(config, dict_result_season)
 
-        with open(os.path.join(evaluation_scale_path, f"{config.location}.pkl"), "wb") as f:
+        with open(
+            os.path.join(evaluation_scale_path, f"{config.location}.pkl"), "wb"
+        ) as f:
             pickle.dump(dict_result_n_ahead, f)
 
     return dict_result_n_ahead
@@ -400,9 +403,12 @@ def extract_forecasts_per_horizon(config, dict_result_season):
     return dict_result_n_ahead
 
 
-def get_run_results(dict_result_n_ahead, config):
-    df_metrics = error_metrics_table(dict_result_n_ahead, config)
+def get_run_results(dict_result_n_ahead, init_config):
+    config = Config().from_dict(init_config)
 
+    config = derive_config_params(config)
+
+    df_metrics = error_metrics_table(dict_result_n_ahead, config)
     side_by_side(dict_result_n_ahead, config)
 
     error_metric_trajectory(dict_result_n_ahead, config)
@@ -429,13 +435,15 @@ def error_metrics_table(dict_result_n_ahead, config):
 
     metrics_tables = []
 
+    model_names = list(dict_result_n_ahead[1]["Summer"][1].keys())
+
     for n_ahead, dict_result_season in dict_result_n_ahead.items():
         for season, (_, preds_per_model, gt) in dict_result_season.items():
             df_metrics = get_error_metric_table(list_metrics, preds_per_model, gt)
             rmse_persistence = df_metrics.iloc[[-1], :]["rmse"].values[
                 0
             ]  # the last row is the X-hour persistence model specified in the training
-            df_metrics.drop(labels=[config.model_names[-1]], axis=0, inplace=True)
+            df_metrics.drop(labels=model_names[-1], axis=0, inplace=True)
             df_metrics.reset_index(inplace=True)
             df_metrics["season"] = season
             df_metrics.set_index("season", inplace=True)
@@ -473,6 +481,7 @@ def side_by_side(dict_result_n_ahead, config):
         key=f"{config.location}/{config.temp_resolution}min/test_cov",
     )
 
+    model_names = list(dict_result_n_ahead[1]["Summer"][1].keys())
     temp_data = {"Summer": df_cov_test.iloc[:, 0], "Winter": df_cov_val.iloc[:, 0]}  # type: ignore
 
     for n_ahead, dict_result_season in dict_result_n_ahead.items():
@@ -489,7 +498,7 @@ def side_by_side(dict_result_n_ahead, config):
                 )
             )
 
-            for model_name in config.model_names:
+            for model_name in model_names:
                 preds = preds_per_model[model_name]
                 fig.add_trace(
                     go.Scatter(
@@ -536,6 +545,8 @@ def error_metric_trajectory(dict_result_n_ahead, config):
 
     n_ahead, dict_result_season = list(dict_result_n_ahead.items())[-1]
 
+    model_names = list(dict_result_n_ahead[1]["Summer"][0].keys())
+
     dict_result_season = dict_result_n_ahead[n_ahead]
     df_smapes_per_season = {}
     df_nrmse_per_season = {}
@@ -557,9 +568,9 @@ def error_metric_trajectory(dict_result_n_ahead, config):
         df_smapes_per_model = (
             pd.concat(df_smapes_per_model, axis=1).ewm(alpha=0.1).mean()
         )
-        df_smapes_per_model.columns = config.model_names
+        df_smapes_per_model.columns = model_names
         df_nrmse_per_model = pd.concat(df_rmse_per_model, axis=1).ewm(alpha=0.1).mean()
-        df_nrmse_per_model.columns = config.model_names
+        df_nrmse_per_model.columns = model_names
         df_smapes_per_season[season] = df_smapes_per_model
         df_nrmse_per_season[season] = df_nrmse_per_model
 
@@ -600,11 +611,12 @@ def error_distribution(dict_result_n_ahead, config):
     print("Plotting error distribution")
 
     n_ahead, dict_result_season = list(dict_result_n_ahead.items())[-1]
+    model_names = list(dict_result_n_ahead[1]["Summer"][1].keys())
     for season, (historics_per_model, _, gt) in dict_result_season.items():
         df_smapes_per_model = []
         df_nrmse_per_model = []
         fig, ax = plt.subplots(
-            ncols=len(config.model_names), figsize=(5 * len(config.model_names), 5)
+            ncols=len(model_names), figsize=(5 * len(model_names), 5)
         )
         fig.suptitle(f"Error Distribution of the Historical Forecasts in {season}")
         for i, (model_name, historics) in enumerate(historics_per_model.items()):

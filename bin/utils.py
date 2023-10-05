@@ -24,6 +24,8 @@ root_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 dir_path = os.path.join(root_path, "data", "clean_data")
 model_dir = os.path.join(root_path, "models")
 
+units_dict = {"county": "GW", "town": "MW", "village": "kW", "neighborhood": "kW"}
+
 
 def calculate_stats_and_plot_hist(df):
     scaler = MinMaxScaler()
@@ -635,4 +637,5 @@ def derive_config_params(config):
     config.n_ahead = config.horizon_in_hours * config.timesteps_per_hour
     # evaluation stride, how often to evaluate the model, in this case we evaluate every n_ahead steps
     config.eval_stride = int(np.sqrt(config.n_ahead))
+    config.unit = units_dict[config.spatial_scale.split("_")[1]]
     return config
