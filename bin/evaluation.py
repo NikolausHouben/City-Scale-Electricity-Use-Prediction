@@ -35,6 +35,7 @@ from utils import (
 from train import data_pipeline, Config
 
 dir_path = os.path.join(os.path.dirname(os.getcwd()), "data", "clean_data")
+evaluations_path = os.path.join(os.path.dirname(os.getcwd()), "data", "evaluations")
 
 
 logger = get_logger(__name__)
@@ -249,54 +250,71 @@ def predict_testset(model, ts, ts_covs, n_lags, n_ahead, eval_stride, pipeline):
     return ts_predictions_inverse.pd_series().to_frame("prediction"), score
 
 
+from utils import create_directory
+import pickle
+
+
 def evaluate(init_config: Dict, models_dict: Dict):
     """
     Loads existing run results (from wandb, TODO) if they exist,
     otherwise runs a backtest for each model on the val and test set, and then formats it into the various horizons
 
     """
+
     config = Config().from_dict(init_config)
-    data = load_data(config)
+    evaluation_path = os.path.join(evaluations_path, config.spatial_scale)
+    create_directory(evaluations_path)
 
-    config = derive_config_params(config)
+    try:
+        with open(os.path.join(evaluation_path, f"{config.location}.pkl"), "rb") as f:
+            dict_result_n_ahead = pickle.load(f)
+        print(f"Existing evaluation for {config.location} found, loading...")
 
-    piped_data, pipeline = data_pipeline(config, data)
+    except:
+        print("No existing evaluation found, running evaluation...")
 
-    (
-        ts_train_piped,
-        ts_val_piped,
-        ts_test_piped,
-        ts_train_weather_piped,
-        ts_val_weather_piped,
-        ts_test_weather_piped,
-    ) = piped_data
+        data = load_data(config)
+        config = derive_config_params(config)
 
-    trg_val_inversed = pipeline.inverse_transform(ts_val_piped)
-    trg_test_inversed = pipeline.inverse_transform(ts_test_piped)
+        piped_data, pipeline = data_pipeline(config, data)
 
-    longest_ts_val_idx = get_longest_subseries_idx(ts_val_piped)
-    longest_ts_test_idx = get_longest_subseries_idx(ts_test_piped)
+        (
+            ts_train_piped,
+            ts_val_piped,
+            ts_test_piped,
+            ts_train_weather_piped,
+            ts_val_weather_piped,
+            ts_test_weather_piped,
+        ) = piped_data
 
-    test_sets = {  # see data_prep.ipynb for the split
-        "Winter": (
-            ts_val_piped[longest_ts_val_idx],
-            None
-            if not config.weather_available
-            else ts_val_weather_piped[longest_ts_val_idx],  # type: ignore
-            trg_val_inversed,
-        ),
-        "Summer": (
-            ts_test_piped[longest_ts_test_idx],
-            None
-            if not config.weather_available
-            else ts_test_weather_piped[longest_ts_test_idx],  # type: ignore
-            trg_test_inversed,
-        ),
-    }
+        trg_val_inversed = pipeline.inverse_transform(ts_val_piped)
+        trg_test_inversed = pipeline.inverse_transform(ts_test_piped)
 
-    dict_result_season = backtesting(models_dict, pipeline, test_sets, config)
+        longest_ts_val_idx = get_longest_subseries_idx(ts_val_piped)
+        longest_ts_test_idx = get_longest_subseries_idx(ts_test_piped)
 
-    dict_result_n_ahead = extract_forecasts_per_horizon(config, dict_result_season)
+        test_sets = {  # see data_prep.ipynb for the split
+            "Winter": (
+                ts_val_piped[longest_ts_val_idx],
+                None
+                if not config.weather_available
+                else ts_val_weather_piped[longest_ts_val_idx],  # type: ignore
+                trg_val_inversed,
+            ),
+            "Summer": (
+                ts_test_piped[longest_ts_test_idx],
+                None
+                if not config.weather_available
+                else ts_test_weather_piped[longest_ts_test_idx],  # type: ignore
+                trg_test_inversed,
+            ),
+        }
+
+        dict_result_season = backtesting(models_dict, pipeline, test_sets, config)
+        dict_result_n_ahead = extract_forecasts_per_horizon(config, dict_result_season)
+
+        with open(os.path.join(evaluation_path, f"{config.location}.pkl"), "wb") as f:
+            pickle.dump(dict_result_n_ahead, f)
 
     return dict_result_n_ahead
 
