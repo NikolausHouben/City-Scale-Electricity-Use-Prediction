@@ -577,6 +577,8 @@ def plot_location_splits(dir_path):
 
     fig.show()
 
+    return fig
+
 
 def load_data(config):
     """Loads the data from disk and returns it in a dictionary, along with the config"""

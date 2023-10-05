@@ -173,7 +173,7 @@ def get_model(config):
     if model_abbr == "xgb":
         model_class = XGBModel
         xgb_kwargs = {
-            "early_stopping_rounds": 2,
+            "early_stopping_rounds": 5,
             "eval_metric": "rmse",
             "verbosity": 1,
         }
@@ -304,17 +304,18 @@ def get_model_instances(models: List, config_per_model: Dict) -> Dict:
     model_instances = {}
     for model in models:
         print("Getting model instance for " + model + "...")
-        config = Config().from_dict(config_per_model[model])
-        model_instances[model] = get_model(config)
+        model_config = Config().from_dict(config_per_model[model])
+        print(model_config.n_ahead)
+        model_instances[model] = get_model(model_config)
 
     # since we did not optimize the hyperparameters for the linear regression model, we need to create a new instance
     print("Getting model instance for linear regression...")
-    config = config_per_model[models[0]]
+    lr_config = config_per_model[models[0]]
     lr_model = LinearRegressionModel(
-        lags=config.n_lags,
+        lags=lr_config.n_lags,
         lags_future_covariates=[0],
-        output_chunk_length=config.n_ahead,
-        add_encoders=config.datetime_encoders,
+        output_chunk_length=lr_config.n_ahead,
+        add_encoders=lr_config.datetime_encoders,
         random_state=42,
     )
 
@@ -537,7 +538,7 @@ def training(init_config: Dict):
     for model in models_to_train:
         model_config, _ = get_best_run_config(
             "Portland_AMI_tuning",
-            "-eval_loss",
+            "+eval_loss",
             model,
             config.spatial_scale,
             config.location,
@@ -546,7 +547,10 @@ def training(init_config: Dict):
         for key, value in config.data.items():
             if key not in model_config.data.keys():
                 model_config[key] = value
-        model_config.n_ahead = config.n_ahead # the sweeps were done for 24h ahead, but we want to train for 48h ahead
+        model_config.n_ahead = (
+            config.n_ahead
+        )  # the sweeps were done for 24h ahead, but we want to train for 48h ahead
+        print(model_config.n_ahead)
 
         config_per_model[model] = model_config
 
@@ -581,7 +585,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--scale", type=str, default="2_town")
     parser.add_argument("--location", type=str, default="GLENDOVEER-13598")
-    parser.add_argument("--models_to_train", nargs="+", type=str, default=["xgb", "rf"])
+    parser.add_argument("--models_to_train", nargs="+", type=str, default=["xgb"])
     args = parser.parse_args()
 
     init_config = {

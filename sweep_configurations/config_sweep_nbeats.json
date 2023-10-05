@@ -7,7 +7,6 @@
     "parameters": {
         "num_stacks": {
             "values": [
-                10,
                 20,
                 30,
                 40,
@@ -25,16 +24,14 @@
             "values": [
                 4,
                 6,
-                8,
-                10
+                8
             ]
         },
         "layer_widths": {
             "values": [
                 128,
                 256,
-                512,
-                1024
+                512
             ]
         },
         "dropout": {
@@ -66,9 +63,6 @@
         },
         "lookback_in_hours": {
             "values": [
-                12,
-                24,
-                48,
                 72
             ]
         }
