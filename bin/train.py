@@ -323,7 +323,7 @@ def get_model_instances(models: List, config_per_model: Dict) -> Dict:
     return model_instances
 
 
-def get_best_run_config(project_name, metric, model, scale):
+def get_best_run_config(project_name, metric, model, scale, location: str):
     """
 
     Returns the config of the best run of a sweep for a given model and location.
@@ -338,8 +338,9 @@ def get_best_run_config(project_name, metric, model, scale):
 
     config = None
     name = None
+    transformer = location.split("-")[0]
     for sweep in sweeps:
-        if model in sweep.name and scale in sweep.name:
+        if model in sweep.name and scale in sweep.name and transformer in sweep.name:
             best_run = sweep.best_run(order=metric)
             config = best_run.config
             config = Config().from_dict(config)
@@ -536,7 +537,11 @@ def training(init_config: Dict):
     )  # add the default config to the config_per_model dict for linear regression
     for model in models_to_train:
         model_config, _ = get_best_run_config(
-            "Wattcast_tuning", "-eval_loss", model, config.spatial_scale
+            "Portland_AMI_tuning",
+            "-eval_loss",
+            model,
+            config.spatial_scale,
+            config.location,
         )
         # update model_config with basic config if they are not yet in the keys of the model config
         for key, value in config.data.items():
