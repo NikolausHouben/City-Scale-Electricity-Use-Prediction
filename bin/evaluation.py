@@ -4,6 +4,7 @@ import os
 from functools import wraps
 from inspect import signature
 from typing import Callable, Optional, Sequence, Tuple, Union, List, Dict
+import pickle
 
 import numpy as np
 import pandas as pd
@@ -30,9 +31,12 @@ from utils import (
     load_data,
     derive_config_params,
     get_longest_subseries_idx,
+    create_directory
 )
 
 from train import data_pipeline, Config
+
+
 
 dir_path = os.path.join(os.path.dirname(os.getcwd()), "data", "clean_data")
 evaluations_path = os.path.join(os.path.dirname(os.getcwd()), "data", "evaluations")
@@ -250,9 +254,6 @@ def predict_testset(model, ts, ts_covs, n_lags, n_ahead, eval_stride, pipeline):
     return ts_predictions_inverse.pd_series().to_frame("prediction"), score
 
 
-from utils import create_directory
-import pickle
-
 
 def evaluate(init_config: Dict, models_dict: Dict):
     """
@@ -262,11 +263,11 @@ def evaluate(init_config: Dict, models_dict: Dict):
     """
 
     config = Config().from_dict(init_config)
-    evaluation_path = os.path.join(evaluations_path, config.spatial_scale)
-    create_directory(evaluations_path)
+    evaluation_scale_path = os.path.join(evaluations_path, config.spatial_scale)
+    create_directory(evaluation_scale_path)
 
     try:
-        with open(os.path.join(evaluation_path, f"{config.location}.pkl"), "rb") as f:
+        with open(os.path.join(evaluation_scale_path, f"{config.location}.pkl"), "rb") as f:
             dict_result_n_ahead = pickle.load(f)
         print(f"Existing evaluation for {config.location} found, loading...")
 
@@ -287,11 +288,12 @@ def evaluate(init_config: Dict, models_dict: Dict):
             ts_test_weather_piped,
         ) = piped_data
 
-        trg_val_inversed = pipeline.inverse_transform(ts_val_piped)
-        trg_test_inversed = pipeline.inverse_transform(ts_test_piped)
 
         longest_ts_val_idx = get_longest_subseries_idx(ts_val_piped)
         longest_ts_test_idx = get_longest_subseries_idx(ts_test_piped)
+
+        trg_val_inversed = pipeline.inverse_transform(ts_val_piped)[longest_ts_val_idx]
+        trg_test_inversed = pipeline.inverse_transform(ts_test_piped)[longest_ts_test_idx]
 
         test_sets = {  # see data_prep.ipynb for the split
             "Winter": (
@@ -309,11 +311,20 @@ def evaluate(init_config: Dict, models_dict: Dict):
                 trg_test_inversed,
             ),
         }
+        test_sets = {  # see data_prep.ipynb for the split
+            "Summer": (
+                ts_test_piped[longest_ts_test_idx],
+                None
+                if not config.weather_available
+                else ts_test_weather_piped[longest_ts_test_idx],  # type: ignore
+                trg_test_inversed,
+            ),
+        }
 
         dict_result_season = backtesting(models_dict, pipeline, test_sets, config)
         dict_result_n_ahead = extract_forecasts_per_horizon(config, dict_result_season)
 
-        with open(os.path.join(evaluation_path, f"{config.location}.pkl"), "wb") as f:
+        with open(os.path.join(evaluation_scale_path, f"{config.location}.pkl"), "wb") as f:
             pickle.dump(dict_result_n_ahead, f)
 
     return dict_result_n_ahead
