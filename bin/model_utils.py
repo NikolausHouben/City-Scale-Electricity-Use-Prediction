@@ -1,6 +1,8 @@
 from typing import List
 import os
 import json
+import time
+
 from typing import List, Dict
 import inspect
 import torch
@@ -16,11 +18,20 @@ from darts.models import (
     TFTModel,
     TiDEModel,
 )
+import wandb
+
 
 from paths import ROOT_DIR, MODEL_DIR
 from utils import create_directory
 
-from pipeline import Config
+from pipeline import (
+    Config,
+    load_auxilary_training_data,
+    load_data,
+    data_pipeline,
+    pipeline_auxilary_data,
+    derive_config_params,
+)
 
 
 def save_models_to_disk(config, newly_trained_models: List):
@@ -302,3 +313,76 @@ def get_model_instances(models: List, config_per_model: Dict) -> Dict:
 
     model_instances["lr"] = lr_model
     return model_instances
+
+
+def train_models(config, untrained_models, config_per_model):
+    """
+    This function does the actual training and is used by 'training'.
+    Takes in a list of models on the training data and validates them on the validation data if it is available.
+
+    Returns the trained models and the runtimes (how long a model took to train).
+
+    """
+
+    run_times = {}
+
+    data = load_data(config)
+
+    aux_data = load_auxilary_training_data(config)
+
+    models = []
+
+    for model_abbr, model in untrained_models.items():
+        start_time = time.time()
+        print(f"Training {model.__class__.__name__}")
+
+        model_config = config_per_model[model_abbr]
+
+        piped_data, _ = data_pipeline(model_config, data)
+
+        aux_trg, aux_cov = pipeline_auxilary_data(model_config, aux_data)
+
+        (
+            ts_train_piped,
+            ts_val_piped,
+            ts_test_piped,
+            ts_train_weather_piped,
+            ts_val_weather_piped,
+            ts_test_weather_piped,
+        ) = piped_data
+
+        print("Extended training data with auxilary data")
+        ts_train_piped.extend(aux_trg)  # type: ignore
+        ts_train_weather_piped.extend(aux_cov)  # type: ignore
+
+        if model.supports_future_covariates:
+            try:
+                model.fit(
+                    ts_train_piped,
+                    future_covariates=ts_train_weather_piped,
+                    val_series=ts_val_piped,
+                    val_future_covariates=ts_val_weather_piped,
+                )
+            except:
+                model.fit(ts_train_piped, future_covariates=ts_train_weather_piped)
+        elif model_config.use_cov_as_past_cov and not model.supports_future_covariates:
+            try:
+                model.fit(
+                    ts_train_piped,
+                    past_covariates=ts_train_weather_piped,
+                    val_series=ts_val_piped,
+                    val_past_covariates=ts_val_weather_piped,
+                )
+            except:
+                model.fit(ts_train_piped, past_covariates=ts_train_weather_piped)
+        else:
+            try:
+                model.fit(ts_train_piped, val_series=ts_val_piped)
+            except:
+                model.fit(ts_train_piped)
+
+        models.append(model)
+
+        end_time = time.time()
+        run_times[model.__class__.__name__] = end_time - start_time
+    return models, run_times
