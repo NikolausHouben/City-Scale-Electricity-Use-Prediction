@@ -107,7 +107,10 @@ def initialize_kwargs(config, model_class, additional_kwargs=None):
         sweep_config = {}
         print(f"Could not find sweep config for model {model_name} saved locally")
 
-    kwargs = config.data
+    try:
+        kwargs = config.data
+    except:
+        kwargs = dict(config)
 
     if additional_kwargs is not None:
         kwargs.update(additional_kwargs)

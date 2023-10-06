@@ -21,7 +21,7 @@ from evaluation import predict_testset
 
 
 def train_eval_tuning():
-    wandb.init(project="WattCast_tuning")
+    wandb.init(project="Portland_AMI_tuning")
     wandb.config.update(init_config)
     config = wandb.config
 
@@ -38,7 +38,7 @@ def train_eval_tuning():
     print("Getting model instance...")
     model_instance = get_model(config)
     model_instance, _ = train_models(
-        config, {config.model: model_instance}, {config.model: config}
+        config, {config.model_abbr: model_instance}, {config.model_abbr: config}
     )  # need to pass in a dict of models and configs
 
     print("Evaluating model...")
@@ -73,17 +73,17 @@ if __name__ == "__main__":
         "--models_to_train",
         nargs="+",
         type=str,
-        default=["xgb", "gru"],
+        default=["tft"],
     )
     args = parser.parse_args()
 
     for model in args.models_to_train:
         # placeholder initialization of config file (will be updated in train_eval_light())
         init_config = {
-            "spatial_scale": "2_town",
+            "spatial_scale": args.scale,
             "temp_resolution": 60,
-            "location": "GLENDOVEER-13596",
-            "model": model,
+            "location": args.location,
+            "model_abbr": model,
             "horizon_in_hours": 24,
             "lookback_in_hours": 24,
             "boxcox": True,
