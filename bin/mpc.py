@@ -12,9 +12,12 @@ from pyomo.opt import SolverFactory
 import pandas as pd
 from datetime import timedelta
 import os
+import sys
 import re
 import argparse
-from utils import (
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils.data_utils import (
     infer_frequency,
     get_run_name_id_dict,
     get_file_names,
@@ -23,18 +26,17 @@ from utils import (
     side_by_side_df,
 )
 import numpy as np
-
 import wandb
 
-project_name = "Wattcast"
+from utils.paths import ROOT_DIR
+
+project_name = "Portland_AMI_2"
 run = wandb.init(
     project=project_name,
     name="mpc_runs",
     id="mpc_runs",
     resume=True,
 )
-
-repository_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def get_forecasts(df, h, fc_type, horizon):
@@ -358,8 +360,8 @@ def run_mpc(df_fc):
         )
     cost_results = pd.DataFrame(cost_results).T
 
-    cost_results.to_csv(os.path.join(repository_dir, "data", "results", "costs.csv"))
-    results.to_csv(os.path.join(repository_dir, "data", "results", "results.csv"))
+    cost_results.to_csv(os.path.join(ROOT_DIR, "data", "results", "costs.csv"))
+    results.to_csv(os.path.join(ROOT_DIR, "data", "results", "results.csv"))
 
 
 def main():
@@ -372,7 +374,7 @@ def main():
 
     # Initialize your project
     api = wandb.Api()
-    runs = api.runs("Wattcast")
+    runs = api.runs("Portland_AMI_2")
     name_id_dict = get_run_name_id_dict(runs)
     files = get_file_names(project_name, name_id_dict, args.run, args.season)
     side_by_side_plots_dict = download_plotly_plots(get_latest_plotly_plots(files))

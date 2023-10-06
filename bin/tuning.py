@@ -2,6 +2,7 @@
 
 import os
 import json
+import sys
 
 import argparse
 import pandas as pd
@@ -9,13 +10,14 @@ import plotly.express as px
 
 import wandb
 
-from paths import SWEEP_DIR
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils.paths import SWEEP_DIR
 
-from pipeline import load_data, derive_config_params, data_pipeline
+from utils.pipeline import load_data, derive_config_params, data_pipeline
 
-from utils import get_longest_subseries_idx
+from utils.data_utils import get_longest_subseries_idx
 
-from model_utils import get_model, train_models
+from utils.model_utils import get_model, train_models
 
 from evaluation import predict_testset
 

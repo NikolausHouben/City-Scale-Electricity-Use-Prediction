@@ -1,7 +1,7 @@
 # pipeline.py
 
 """Contains all the functions to load and preprocess the data, as well as the config class."""
-
+import sys
 import darts
 import numpy as np
 import pandas as pd
@@ -15,11 +15,11 @@ from darts.dataprocessing.transformers.scaler import Scaler
 from darts.dataprocessing import Pipeline
 
 from sklearn.preprocessing import MinMaxScaler, RobustScaler
-from utils import get_hdf_keys, review_subseries
+from data_utils import get_hdf_keys, review_subseries
 import wandb
 
-
-from paths import CLEAN_DATA_DIR
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils.paths import CLEAN_DATA_DIR
 
 
 class Config:
@@ -267,11 +267,11 @@ def load_data(config):
     df_val = pd.read_hdf(
         os.path.join(CLEAN_DATA_DIR, f"{config.spatial_scale}.h5"),
         key=f"{config.location}/{config.temp_resolution}min/val_target",
-    )[:200]
+    )
     df_test = pd.read_hdf(
         os.path.join(CLEAN_DATA_DIR, f"{config.spatial_scale}.h5"),
         key=f"{config.location}/{config.temp_resolution}min/test_target",
-    )[:200]
+    )
 
     df_cov_train = pd.read_hdf(
         os.path.join(CLEAN_DATA_DIR, f"{config.spatial_scale}.h5"),
@@ -280,11 +280,11 @@ def load_data(config):
     df_cov_val = pd.read_hdf(
         os.path.join(CLEAN_DATA_DIR, f"{config.spatial_scale}.h5"),
         key=f"{config.location}/{config.temp_resolution}min/val_cov",
-    )[:200]
+    )
     df_cov_test = pd.read_hdf(
         os.path.join(CLEAN_DATA_DIR, f"{config.spatial_scale}.h5"),
         key=f"{config.location}/{config.temp_resolution}min/test_cov",
-    )[:200]
+    )
 
     data = {
         "trg": (df_train, df_val, df_test),

@@ -1,5 +1,5 @@
 # eval.py
-
+import sys
 import os
 from functools import wraps
 from inspect import signature
@@ -22,7 +22,8 @@ from darts.metrics.metrics import (
     _get_values_or_raise,
 )
 
-from utils import (
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils.data_utils import (
     make_index_same,
     ts_list_concat_new,
     get_df_diffs,
@@ -32,9 +33,10 @@ from utils import (
     create_directory,
 )
 
-from pipeline import data_pipeline, Config, derive_config_params, load_data
+from utils.pipeline import data_pipeline, Config, derive_config_params, load_data
 
-from paths import EVAL_DIR, CLEAN_DATA_DIR
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils.paths import EVAL_DIR, CLEAN_DATA_DIR
 
 logger = get_logger(__name__)
 

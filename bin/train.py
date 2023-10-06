@@ -1,46 +1,28 @@
 # train_eval.py
-
-import os
 import wandb
 import pandas as pd
-import time
-import json
 import argparse
-import inspect
 from typing import List, Dict
-import torch
-
-from darts.models import (
-    LinearRegressionModel,
-    RandomForest,
-    LightGBMModel,
-    XGBModel,
-    BlockRNNModel,
-    NBEATSModel,
-    TFTModel,
-    TiDEModel,
-)
+import os
+import sys
 
 import wandb
-from pytorch_lightning.callbacks.early_stopping import EarlyStopping
-from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from evaluation import evaluate, get_run_results
 
-from pipeline import (
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils.pipeline import (
     Config,
     get_best_run_config,
     derive_config_params,
 )
 
-from model_utils import (
+from utils.model_utils import (
     load_trained_models,
     save_models_to_disk,
     get_model_instances,
     train_models,
 )
-
-from paths import ROOT_DIR
 
 
 def training(init_config: Dict):
@@ -103,12 +85,12 @@ if __name__ == "__main__":
     # argparse scale and location
     parser = argparse.ArgumentParser()
     parser.add_argument("--scale", type=str, default="GLENDOVEER")
-    parser.add_argument("--location", type=str, default="13596.MWh")
+    parser.add_argument("--location", type=str, default="13598.MWh")
     parser.add_argument(
         "--models_to_train",
         nargs="+",
         type=str,
-        default=["xgb", "gru"],
+        default=["rf"],
     )
     parser.add_argument("--evaluate", type=bool, default=False)
     args = parser.parse_args()
@@ -146,7 +128,7 @@ if __name__ == "__main__":
         + str(init_config["use_auxilary_data"])
     )
     wandb.init(
-        project="Portland_AMI_1", name=name_id, id=name_id
+        project="Portland_AMI_2", name=name_id, id=name_id
     )  # set id to continue existing runs
     config, models_dict = training(init_config)
 

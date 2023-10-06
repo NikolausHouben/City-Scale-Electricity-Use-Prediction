@@ -1,5 +1,6 @@
 from typing import List
 import os
+import sys
 import json
 import time
 
@@ -20,11 +21,11 @@ from darts.models import (
 )
 import wandb
 
-
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from paths import ROOT_DIR, MODEL_DIR
-from utils import create_directory
+from data_utils import create_directory
 
-from pipeline import (
+from utils.pipeline import (
     Config,
     load_auxilary_training_data,
     load_data,

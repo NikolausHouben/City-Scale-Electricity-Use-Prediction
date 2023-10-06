@@ -16,7 +16,6 @@ import wandb
 import plotly.express as px
 import plotly.graph_objects as go
 
-from paths import ROOT_DIR, CLEAN_DATA_DIR, RAW_DATA_DIR, EVAL_DIR, MODEL_DIR
 
 units_dict = {"county": "GW", "town": "MW", "village": "kW", "neighborhood": "kW"}
 
