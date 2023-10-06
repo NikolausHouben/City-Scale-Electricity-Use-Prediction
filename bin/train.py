@@ -3,33 +3,12 @@
 import os
 import wandb
 import pandas as pd
-import numpy as np
 import time
 import json
 import argparse
 import inspect
 from typing import List, Dict
 
-
-import plotly.express as px
-import plotly.graph_objects as go
-import matplotlib.pyplot as plt
-from sklearn.preprocessing import MinMaxScaler, RobustScaler
-from utils import (
-    review_subseries,
-    load_trained_models,
-    save_models_to_disk,
-    check_if_torch_model,
-    derive_config_params,
-    load_data,
-    get_hdf_keys,
-)
-
-import darts
-from darts.utils.missing_values import extract_subseries
-from darts.dataprocessing.transformers.boxcox import BoxCox
-from darts.dataprocessing.transformers.scaler import Scaler
-from darts.dataprocessing import Pipeline
 from darts.models import (
     LinearRegressionModel,
     RandomForest,
@@ -46,67 +25,21 @@ from wandb.xgboost import WandbCallback
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
+from evaluation import evaluate, get_run_results
 
-root_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-dir_path = os.path.join(root_path, "data", "clean_data")
+from pipeline import (
+    data_pipeline,
+    Config,
+    load_auxilary_training_data,
+    pipeline_auxilary_data,
+    get_best_run_config,
+    load_data,
+    derive_config_params,
+)
 
+from model_utils import check_if_torch_model, load_trained_models, save_models_to_disk
 
-class Config:
-    """
-    Class to store config parameters, to circumvent the wandb.config when combining multiple models when debugging
-    """
-
-    def __init__(self):
-        self.data = {}
-
-    def __getattr__(self, key):
-        if key in self.data:
-            return self.data[key]
-        else:
-            raise AttributeError(f"'Config' object has no attribute '{key}'")
-
-    def __setattr__(self, key, value):
-        if key == "data":
-            # Allow normal assignment for the 'data' attribute
-            super().__setattr__(key, value)
-        else:
-            self.data[key] = value
-
-    def __delattr__(self, key):
-        if key in self.data:
-            del self.data[key]
-        else:
-            raise AttributeError(f"'Config' object has no attribute '{key}'")
-
-    def __len__(self):
-        return len(self.data)
-
-    def keys(self):
-        return self.data.keys()
-
-    def values(self):
-        return self.data.values()
-
-    def items(self):
-        return self.data.items()
-
-    def __getitem__(self, key):
-        return self.data[key]
-
-    def __setitem__(self, key, value):
-        self.data[key] = value
-
-    @classmethod
-    def from_dict(cls, data):
-        config = cls()
-        for key, value in data.items():
-            config[key] = value  # Preserve nested dictionaries without converting
-        return config
-
-    def copy(self):
-        new_instance = Config()
-        new_instance.data = self.data.copy()
-        return new_instance
+from paths import ROOT_DIR
 
 
 def initialize_kwargs(config, model_class, additional_kwargs=None):
@@ -117,7 +50,7 @@ def initialize_kwargs(config, model_class, additional_kwargs=None):
     )  # we will handle torch models a bit differently than sklearn-API type models
 
     sweep_path = os.path.join(
-        root_path, "sweep_configurations", f"config_sweep_{model_name}.json"
+        ROOT_DIR, "sweep_configurations", f"config_sweep_{model_name}.json"
     )
     try:
         with open(sweep_path) as f:
@@ -149,7 +82,6 @@ def initialize_kwargs(config, model_class, additional_kwargs=None):
 
         kwargs = {key: value for key, value in kwargs.items() if key in valid_keywords}
 
-    print(kwargs)
     return kwargs
 
 
@@ -329,179 +261,6 @@ def get_model_instances(models: List, config_per_model: Dict) -> Dict:
     return model_instances
 
 
-def get_best_run_config(project_name, metric, model, scale, location: str):
-    """
-
-    Returns the config of the best run of a sweep for a given model and location.
-
-    """
-
-    api = wandb.Api()
-    sweeps = []
-    for project in api.projects():
-        if project_name == project.name:
-            sweeps = project.sweeps()
-
-    config = None
-    name = None
-    transformer = location.split("-")[0]
-    for sweep in sweeps:
-        if model in sweep.name and scale in sweep.name:
-            best_run = sweep.best_run(order=metric)
-            config = best_run.config
-            config = Config().from_dict(config)
-            name = best_run.name
-            print(f"Fetched sweep with name {name} for model {model}")
-
-    if config == None:
-        print(
-            f"Could not find a sweep for model {model} and scale {scale} in project {project_name}."
-        )
-        config = Config()
-        config.model = model
-
-    return config, name
-
-
-def data_pipeline(config, data):
-    trg, cov = data["trg"], data["cov"]
-    df_train, df_val, df_test = trg
-    df_cov_train, df_cov_val, df_cov_test = cov
-
-    # Heat wave covariate, categorical variable
-    if config.heat_wave_binary:
-        df_cov_train["heat_wave"] = df_cov_train[
-            df_cov_train.columns[0]
-        ] > df_cov_train[df_cov_train.columns[0]].quantile(0.95)
-        df_cov_val["heat_wave"] = df_cov_val[df_cov_val.columns[0]] > df_cov_val[
-            df_cov_val.columns[0]
-        ].quantile(0.95)
-        df_cov_test["heat_wave"] = df_cov_test[df_cov_test.columns[0]] > df_cov_test[
-            df_cov_test.columns[0]
-        ].quantile(0.95)
-
-    # into darts format
-    ts_train = darts.TimeSeries.from_dataframe(
-        df_train, freq=str(config.temp_resolution) + "min"  # type: ignore
-    )
-    ts_train = extract_subseries(ts_train)
-    ts_val = darts.TimeSeries.from_dataframe(
-        df_val, freq=str(config.temp_resolution) + "min"  # type: ignore
-    )
-    ts_val = extract_subseries(ts_val)
-    ts_test = darts.TimeSeries.from_dataframe(
-        df_test, freq=str(config.temp_resolution) + "min"  # type: ignore
-    )
-    ts_test = extract_subseries(ts_test)
-
-    # Covariates
-    if config.weather_available:
-        ts_cov_train = darts.TimeSeries.from_dataframe(
-            df_cov_train, freq=str(config.temp_resolution) + "min"  # type: ignore
-        )
-        ts_cov_val = darts.TimeSeries.from_dataframe(
-            df_cov_val, freq=str(config.temp_resolution) + "min"  # type: ignore
-        )
-        ts_cov_test = darts.TimeSeries.from_dataframe(
-            df_cov_test, freq=str(config.temp_resolution) + "min"  # type: ignore
-        )
-    else:
-        ts_cov_train = None
-        ts_cov_val = None
-        ts_cov_test = None
-
-    # Reviewing subseries to make sure they are long enough
-    ts_train, ts_cov_train = review_subseries(
-        ts_train, config.n_lags + config.n_ahead, ts_cov_train
-    )
-    ts_val, ts_cov_val = review_subseries(
-        ts_val, config.n_lags + config.n_ahead, ts_cov_val
-    )
-    ts_test, ts_cov_test = review_subseries(
-        ts_test, config.n_lags + config.n_ahead, ts_cov_test
-    )
-
-    # Preprocessing Pipeline, global fit is important to turn on because we have split the entire ts into multiple timeseries at nans
-    # but want to use the same params for all of them
-    # Missing values have been filled in the 'data_prep.ipynb', so we don't need to do that here
-    pipeline = Pipeline(
-        [
-            BoxCox(global_fit=True)
-            if config.boxcox
-            else Scaler(
-                MinMaxScaler(), global_fit=True
-            ),  # double scale in case boxcox is turned off
-            Scaler(MinMaxScaler(), global_fit=True),
-        ]
-    )
-    ts_train_piped = pipeline.fit_transform(ts_train)
-    ts_val_piped = pipeline.transform(ts_val)
-    ts_test_piped = pipeline.transform(ts_test)
-
-    # Weather Pipeline
-    if config.weather_available:
-        pipeline_weather = Pipeline([Scaler(RobustScaler(), global_fit=True)])
-        ts_train_weather_piped = pipeline_weather.fit_transform(ts_cov_train)
-        ts_val_weather_piped = pipeline_weather.transform(ts_cov_val)
-        ts_test_weather_piped = pipeline_weather.transform(ts_cov_test)
-    else:
-        ts_train_weather_piped = None
-        ts_val_weather_piped = None
-        ts_test_weather_piped = None
-
-    piped_data = (
-        ts_train_piped,
-        ts_val_piped,
-        ts_test_piped,
-        ts_train_weather_piped,
-        ts_val_weather_piped,
-        ts_test_weather_piped,
-    )
-
-    return piped_data, pipeline
-
-
-def load_auxilary_training_data(config):
-    """To enhance the current locations trainign data with the val and test sets of locations on the same scale"""
-
-    list_auxilary_data = []
-    if config.use_auxilary_data:
-        for auxilary_location in get_hdf_keys(dir_path)[0][
-            config.spatial_scale + ".h5"
-        ]:
-            auxilary_config = config.copy()
-            if auxilary_location != config.location:
-                auxilary_config.location = auxilary_location
-                auxilary_data = load_data(auxilary_config)
-                list_auxilary_data.append(auxilary_data)
-
-    return list_auxilary_data
-
-
-def pipeline_auxilary_data(config, list_auxilary_data):
-    if len(list_auxilary_data) == 0:
-        return [], []
-
-    auxilary_training_data_trg = []
-    auxilary_training_data_cov = []
-    for auxilary_data in list_auxilary_data:
-        auxilary_piped_data, aux_pipeline = data_pipeline(config, auxilary_data)
-        (
-            _,
-            aux_ts_val_piped,
-            aux_ts_test_piped,
-            _,
-            aux_ts_val_weather_piped,
-            aux_ts_test_weather_piped,
-        ) = auxilary_piped_data
-        auxilary_training_data_trg.append(aux_ts_val_piped[0])
-        auxilary_training_data_cov.append(aux_ts_val_weather_piped[0])  # type: ignore
-        auxilary_training_data_trg.append(aux_ts_test_piped[0])
-        auxilary_training_data_cov.append(aux_ts_test_weather_piped[0])  # type: ignore
-
-    return auxilary_training_data_trg, auxilary_training_data_cov
-
-
 def train_models(config, untrained_models, config_per_model):
     """
     This function does the actual training and is used by 'training'.
@@ -538,8 +297,9 @@ def train_models(config, untrained_models, config_per_model):
             ts_test_weather_piped,
         ) = piped_data
 
-        ts_train_piped.extend(aux_trg)
-        ts_train_weather_piped.extend(aux_cov)
+        print("Extended training data with auxilary data")
+        ts_train_piped.extend(aux_trg)  # type: ignore
+        ts_train_weather_piped.extend(aux_cov)  # type: ignore
 
         if model.supports_future_covariates:
             try:
@@ -638,8 +398,9 @@ if __name__ == "__main__":
     # argparse scale and location
     parser = argparse.ArgumentParser()
     parser.add_argument("--scale", type=str, default="GLENDOVEER")
-    parser.add_argument("--location", type=str, default="13596.(MWh)")
+    parser.add_argument("--location", type=str, default="13596.MWh")
     parser.add_argument("--models_to_train", nargs="+", type=str, default=["xgb"])
+    parser.add_argument("--evaluate", type=bool, default=False)
     args = parser.parse_args()
 
     init_config = {
@@ -669,10 +430,17 @@ if __name__ == "__main__":
         + "_"
         + str(init_config["temp_resolution"])
         + "min"
+        + "_"
+        + "aux_data-"
+        + str(init_config["use_auxilary_data"])
     )
     wandb.init(
         project="Portland_AMI", name=name_id, id=name_id
     )  # set id to continue existing runs
     config, models_dict = training(init_config)
+
+    if args.evaluate:
+        eval_dict = evaluate(config, models_dict)
+        df_metrics = get_run_results(eval_dict, config)
 
     wandb.finish()

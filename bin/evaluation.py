@@ -28,18 +28,13 @@ from utils import (
     get_df_diffs,
     get_df_compares_list,
     ts_list_concat,
-    load_data,
-    derive_config_params,
     get_longest_subseries_idx,
     create_directory,
 )
 
-from train import data_pipeline, Config
+from pipeline import data_pipeline, Config, derive_config_params, load_data
 
-
-dir_path = os.path.join(os.path.dirname(os.getcwd()), "data", "clean_data")
-evaluations_path = os.path.join(os.path.dirname(os.getcwd()), "data", "evaluations")
-
+from paths import EVAL_DIR, CLEAN_DATA_DIR
 
 logger = get_logger(__name__)
 
@@ -261,7 +256,7 @@ def evaluate(init_config: Dict, models_dict: Dict):
     """
 
     config = Config().from_dict(init_config)
-    evaluation_scale_path = os.path.join(evaluations_path, config.spatial_scale)
+    evaluation_scale_path = os.path.join(EVAL_DIR, config.spatial_scale)
     create_directory(evaluation_scale_path)
 
     try:
@@ -312,6 +307,7 @@ def evaluate(init_config: Dict, models_dict: Dict):
                 trg_test_inversed,
             ),
         }
+
         test_sets = {  # see data_prep.ipynb for the split
             "Summer": (
                 ts_test_piped[longest_ts_test_idx],
@@ -469,15 +465,15 @@ def side_by_side(dict_result_n_ahead, config):
     print("Plotting side-by-side comparison of predictions and the ground truth")
 
     df_cov_train = pd.read_hdf(
-        os.path.join(dir_path, f"{config.spatial_scale}.h5"),
+        os.path.join(CLEAN_DATA_DIR, f"{config.spatial_scale}.h5"),
         key=f"{config.location}/{config.temp_resolution}min/train_cov",
     )
     df_cov_val = pd.read_hdf(
-        os.path.join(dir_path, f"{config.spatial_scale}.h5"),
+        os.path.join(CLEAN_DATA_DIR, f"{config.spatial_scale}.h5"),
         key=f"{config.location}/{config.temp_resolution}min/val_cov",
     )
     df_cov_test = pd.read_hdf(
-        os.path.join(dir_path, f"{config.spatial_scale}.h5"),
+        os.path.join(CLEAN_DATA_DIR, f"{config.spatial_scale}.h5"),
         key=f"{config.location}/{config.temp_resolution}min/test_cov",
     )
 

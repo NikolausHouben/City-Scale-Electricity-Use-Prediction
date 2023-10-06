@@ -5,10 +5,7 @@
 import os
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 import json
-from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, Callback
-from torch.optim.lr_scheduler import ReduceLROnPlateau
 from sklearn.preprocessing import MinMaxScaler
 import requests
 from timezonefinder import TimezoneFinder
@@ -19,12 +16,7 @@ import wandb
 import plotly.express as px
 import plotly.graph_objects as go
 
-from typing import List
-
-
-root_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-dir_path = os.path.join(root_path, "data", "clean_data")
-model_dir = os.path.join(root_path, "models")
+from paths import ROOT_DIR, CLEAN_DATA_DIR, RAW_DATA_DIR, EVAL_DIR, MODEL_DIR
 
 units_dict = {"county": "GW", "town": "MW", "village": "kW", "neighborhood": "kW"}
 
@@ -46,62 +38,6 @@ def create_directory(directory_path):
         print(f"Directory created: {directory_path}")
     else:
         print(f"Directory already exists: {directory_path}")
-
-
-def save_models_to_disk(config, newly_trained_models: List):
-    create_directory(model_dir)
-    for model in newly_trained_models:
-        model_path = os.path.join(
-            model_dir, config.spatial_scale + "_" + config.location
-        )
-        create_directory(model_path)
-        print(model_dir)
-        model.save(os.path.join(model_path, model.__class__.__name__ + ".joblib"))
-
-
-def check_if_torch_model(obj):
-    for cls in obj.mro():
-        if "torch" in cls.__module__:
-            return True
-    return False
-
-
-def load_trained_models(config, model_instances):
-    """
-
-    This function loads the trained models from the disk. If a model is not found, it is removed from the dictionary.
-
-    Parameters
-
-    config: Config
-        Config object
-
-    model_instances: dict
-        Dictionary with the model instances
-
-    Returns
-    trained_models: list
-    model_instances: dict
-
-    """
-
-    trained_models = []
-    model_keys = list(model_instances.keys())  # Create a copy of the dictionary keys
-    for model_abbr in model_keys:
-        model = model_instances[model_abbr]
-        try:
-            model = model.load(
-                os.path.join(
-                    model_dir,
-                    config.spatial_scale + "_" + config.location,
-                    model.__class__.__name__ + ".joblib",
-                )
-            )
-            trained_models.append(model)
-            del model_instances[model_abbr]
-        except:
-            continue
-    return trained_models, model_instances
 
 
 def get_hdf_keys(dir_path):
@@ -586,65 +522,3 @@ def plot_location_splits(dir_path, scale_idx, location_idx, show_covariates=Fals
     print(f"Location: {location}")
     fig.show()
     return fig
-
-
-def load_data(config):
-    """Loads the data from disk and returns it in a dictionary, along with the config"""
-
-    # Loading Data
-    df_train = pd.read_hdf(
-        os.path.join(dir_path, f"{config.spatial_scale}.h5"),
-        key=f"{config.location}/{config.temp_resolution}min/train_target",
-    )
-    df_val = pd.read_hdf(
-        os.path.join(dir_path, f"{config.spatial_scale}.h5"),
-        key=f"{config.location}/{config.temp_resolution}min/val_target",
-    )
-    df_test = pd.read_hdf(
-        os.path.join(dir_path, f"{config.spatial_scale}.h5"),
-        key=f"{config.location}/{config.temp_resolution}min/test_target",
-    )
-
-    df_cov_train = pd.read_hdf(
-        os.path.join(dir_path, f"{config.spatial_scale}.h5"),
-        key=f"{config.location}/{config.temp_resolution}min/train_cov",
-    )
-    df_cov_val = pd.read_hdf(
-        os.path.join(dir_path, f"{config.spatial_scale}.h5"),
-        key=f"{config.location}/{config.temp_resolution}min/val_cov",
-    )
-    df_cov_test = pd.read_hdf(
-        os.path.join(dir_path, f"{config.spatial_scale}.h5"),
-        key=f"{config.location}/{config.temp_resolution}min/test_cov",
-    )
-
-    data = {
-        "trg": (df_train, df_val, df_test),
-        "cov": (df_cov_train, df_cov_val, df_cov_test),
-    }
-
-    return data
-
-
-def derive_config_params(config):
-    if config.temp_resolution == 60:
-        timestep_encoding = ["hour"]
-    elif config.temp_resolution == 15:
-        timestep_encoding = ["quarter"]
-    else:
-        timestep_encoding = ["hour", "minute"]
-
-    datetime_encoders = {
-        "cyclic": {"future": timestep_encoding},
-        "datetime_attribute": {"future": config.datetime_attributes},
-    }
-
-    datetime_encoders = datetime_encoders if config.datetime_encodings else None
-    config["datetime_encoders"] = datetime_encoders
-    config.timesteps_per_hour = int(60 / config.temp_resolution)
-    # input and output length for models
-    config.n_lags = config.lookback_in_hours * config.timesteps_per_hour
-    config.n_ahead = config.horizon_in_hours * config.timesteps_per_hour
-    # evaluation stride, how often to evaluate the model, in this case we evaluate every n_ahead steps
-    config.eval_stride = int(np.sqrt(config.n_ahead))
-    return config
