@@ -364,7 +364,6 @@ def training(init_config: Dict):
         model_config.n_ahead = (
             config.n_ahead
         )  # the sweeps were done for 24h ahead, but we want to train for 48h ahead
-        print(model_config.n_ahead)
 
         config_per_model[model] = model_config
 
@@ -399,7 +398,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--scale", type=str, default="GLENDOVEER")
     parser.add_argument("--location", type=str, default="13596.MWh")
-    parser.add_argument("--models_to_train", nargs="+", type=str, default=["xgb"])
+    parser.add_argument(
+        "--models_to_train",
+        nargs="+",
+        type=str,
+        default=["xgb", "rf", "lgbm", "nbeats", "gru"],
+    )
     parser.add_argument("--evaluate", type=bool, default=False)
     args = parser.parse_args()
 
@@ -407,6 +411,7 @@ if __name__ == "__main__":
         "spatial_scale": args.scale,
         "temp_resolution": 60,
         "location": args.location,
+        "unit": "MWh",
         "models_to_train": args.models_to_train,
         "horizon_in_hours": 48,
         "lookback_in_hours": 24,
@@ -431,7 +436,7 @@ if __name__ == "__main__":
         + str(init_config["temp_resolution"])
         + "min"
         + "_"
-        + "aux_data-"
+        + "aux_data--"
         + str(init_config["use_auxilary_data"])
     )
     wandb.init(

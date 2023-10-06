@@ -258,28 +258,28 @@ def load_data(config):
     df_train = pd.read_hdf(
         os.path.join(CLEAN_DATA_DIR, f"{config.spatial_scale}.h5"),
         key=f"{config.location}/{config.temp_resolution}min/train_target",
-    )
+    )[:500]
     df_val = pd.read_hdf(
         os.path.join(CLEAN_DATA_DIR, f"{config.spatial_scale}.h5"),
         key=f"{config.location}/{config.temp_resolution}min/val_target",
-    )
+    )[:200]
     df_test = pd.read_hdf(
         os.path.join(CLEAN_DATA_DIR, f"{config.spatial_scale}.h5"),
         key=f"{config.location}/{config.temp_resolution}min/test_target",
-    )
+    )[:200]
 
     df_cov_train = pd.read_hdf(
         os.path.join(CLEAN_DATA_DIR, f"{config.spatial_scale}.h5"),
         key=f"{config.location}/{config.temp_resolution}min/train_cov",
-    )
+    )[:500]
     df_cov_val = pd.read_hdf(
         os.path.join(CLEAN_DATA_DIR, f"{config.spatial_scale}.h5"),
         key=f"{config.location}/{config.temp_resolution}min/val_cov",
-    )
+    )[:200]
     df_cov_test = pd.read_hdf(
         os.path.join(CLEAN_DATA_DIR, f"{config.spatial_scale}.h5"),
         key=f"{config.location}/{config.temp_resolution}min/test_cov",
-    )
+    )[:200]
 
     data = {
         "trg": (df_train, df_val, df_test),
