@@ -10,7 +10,7 @@ declare -A KEYS=(
 for scale in "${!KEYS[@]}"; do
     for location in ${KEYS[$scale]}; do
 
-        python tuning.py --scale "$scale" --location "$location" --evaluate True
+        python bin/tuning.py --scale "$scale" --location "$location" --evaluate True
     done
 done
 

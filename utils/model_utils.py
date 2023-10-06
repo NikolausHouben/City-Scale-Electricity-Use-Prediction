@@ -19,11 +19,10 @@ from darts.models import (
     TFTModel,
     TiDEModel,
 )
-import wandb
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from paths import ROOT_DIR, MODEL_DIR
-from data_utils import create_directory
+from .paths import ROOT_DIR, MODEL_DIR
+from .data_utils import create_directory
 
 from utils.pipeline import (
     Config,
@@ -31,7 +30,6 @@ from utils.pipeline import (
     load_data,
     data_pipeline,
     pipeline_auxilary_data,
-    derive_config_params,
 )
 
 

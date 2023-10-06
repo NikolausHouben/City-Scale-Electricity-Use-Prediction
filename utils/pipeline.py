@@ -15,11 +15,12 @@ from darts.dataprocessing.transformers.scaler import Scaler
 from darts.dataprocessing import Pipeline
 
 from sklearn.preprocessing import MinMaxScaler, RobustScaler
-from data_utils import get_hdf_keys, review_subseries
+
 import wandb
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils.paths import CLEAN_DATA_DIR
+from .paths import CLEAN_DATA_DIR
+from .data_utils import get_hdf_keys, review_subseries
 
 
 class Config:
