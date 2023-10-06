@@ -8,6 +8,7 @@ import json
 import argparse
 import inspect
 from typing import List, Dict
+import torch
 
 from darts.models import (
     LinearRegressionModel,
@@ -97,13 +98,19 @@ def get_model(config):
         optimizer_kwargs["lr"] = config.learning_rate
     except:
         optimizer_kwargs["lr"] = 1e-3
+    cuda = torch.cuda.is_available()
+
+    if cuda:
+        devices_value = [0]  # use GPU 0
+    else:
+        devices_value = 1  # use 1 CPU core
 
     pl_trainer_kwargs = {
         "max_epochs": 20,
-        "accelerator": "gpu",
-        "devices": [0],
+        "accelerator": "gpu" if cuda else "cpu",
+        "devices": devices_value,
         "callbacks": [EarlyStopping(monitor="val_loss", patience=5, mode="min")],
-        #'logger': WandbLogger(log_model='all'), #turn on in case you want to log the model itself to wandb
+        # 'logger': WandbLogger(log_model='all'), #turn on in case you want to log the model itself to wandb
     }
     schedule_kwargs = {"patience": 2, "factor": 0.5, "min_lr": 1e-5, "verbose": True}
     # ----------------- #
@@ -402,7 +409,7 @@ if __name__ == "__main__":
         "--models_to_train",
         nargs="+",
         type=str,
-        default=["xgb", "rf", "lgbm", "nbeats", "gru"],
+        default=["xgb", "gru"],
     )
     parser.add_argument("--evaluate", type=bool, default=False)
     args = parser.parse_args()

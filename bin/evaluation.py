@@ -108,7 +108,7 @@ def mean_n_peak_error(
     pred_series: Union[TimeSeries, Sequence[TimeSeries]],
     intersect: bool = True,
     *,
-    reduction: Callable[[np.ndarray], float] = np.mean,
+    reduction: Callable[[np.ndarray], float] = np.mean,  # type: ignore
     inter_reduction: Callable[[np.ndarray], Union[float, np.ndarray]] = lambda x: x,
     n_jobs: int = 1,
     verbose: bool = False,
@@ -261,7 +261,8 @@ def evaluate(init_config: Dict, models_dict: Dict):
 
     try:
         with open(
-            os.path.join(evaluation_scale_path, f"{config.location}.pkl"), "rb"
+            os.path.join(evaluation_scale_path, f"{config.location.split('.')[0]}.pkl"),
+            "rb",
         ) as f:
             dict_result_n_ahead = pickle.load(f)
         print(f"Existing evaluation for {config.location} found, loading...")
@@ -322,7 +323,8 @@ def evaluate(init_config: Dict, models_dict: Dict):
         dict_result_n_ahead = extract_forecasts_per_horizon(config, dict_result_season)
 
         with open(
-            os.path.join(evaluation_scale_path, f"{config.location}.pkl"), "wb"
+            os.path.join(evaluation_scale_path, f"{config.location.split('.')[0]}.pkl"),
+            "wb",
         ) as f:
             pickle.dump(dict_result_n_ahead, f)
 

@@ -9,10 +9,9 @@ def save_models_to_disk(config, newly_trained_models: List):
     create_directory(MODEL_DIR)
     for model in newly_trained_models:
         model_path = os.path.join(
-            MODEL_DIR, config.spatial_scale + "_" + config.location
+            MODEL_DIR, config.spatial_scale, config.location.split(".")[0]
         )
         create_directory(model_path)
-        print(MODEL_DIR)
         model.save(os.path.join(model_path, model.__class__.__name__ + ".joblib"))
 
 
@@ -50,7 +49,8 @@ def load_trained_models(config, model_instances):
             model = model.load(
                 os.path.join(
                     MODEL_DIR,
-                    config.spatial_scale + "_" + config.location,
+                    config.spatial_scale,
+                    config.location.split(".")[0],
                     model.__class__.__name__ + ".joblib",
                 )
             )
