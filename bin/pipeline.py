@@ -1,5 +1,7 @@
 # pipeline.py
 
+"""Contains all the functions to load and preprocess the data, as well as the config class."""
+
 import darts
 import numpy as np
 import pandas as pd

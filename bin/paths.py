@@ -1,3 +1,5 @@
+"""Paths used in the project."""
+
 import os
 
 # Path to the root of the project
