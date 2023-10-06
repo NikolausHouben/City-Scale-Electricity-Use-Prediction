@@ -16,6 +16,8 @@ import time
 from darts.utils.missing_values import fill_missing_values
 import h5py
 import wandb
+import plotly.express as px
+import plotly.graph_objects as go
 
 from typing import List
 
@@ -365,7 +367,7 @@ def remove_non_positive_values(df, set_nan=False):
 
 
 def interpolate_and_dropna(df):
-    df = df.interpolate(method="linear", axis=0, limit=4)
+    df = df.interpolate(method="linear", axis=0, limit=8)
     df.dropna(inplace=True)
     return df
 
@@ -513,17 +515,21 @@ def get_run_name_id_dict(runs):
 
 
 def remove_outliers(df, column, lower_percentile=0, upper_percentile=100):
+    # Calculate the thresholds
     lower_threshold = df[column].quantile(lower_percentile / 100)
     upper_threshold = df[column].quantile(upper_percentile / 100)
-    df_filtered = df[(df[column] >= lower_threshold) & (df[column] <= upper_threshold)]
-    return df_filtered
+
+    # Clip the values
+    df[column] = df[column].clip(lower_threshold, upper_threshold)
+
+    return df
 
 
-def plot_location_splits(dir_path):
+def plot_location_splits(dir_path, scale_idx, location_idx, show_covariates=False):
     locations, temps = get_hdf_keys(dir_path)
 
-    spatial_scale = list(locations.keys())[0]
-    location = list(locations.values())[0][0]
+    spatial_scale = list(locations.keys())[scale_idx]
+    location = list(locations.values())[scale_idx][location_idx]
     temp_resolution = list(temps.values())[0][0]
 
     df_train = pd.read_hdf(
@@ -552,19 +558,21 @@ def plot_location_splits(dir_path):
         key=f"{location}/{temp_resolution}/test_cov",
     )
 
-    import plotly.express as px
-    import plotly.graph_objects as go
-
-    fig = px.line(df_train)
-
-    dfs = {
-        "df_train": df_train,
-        "df_val": df_val,
-        "df_test": df_test,
-        "df_cov_train": df_cov_train,
-        "df_cov_val": df_cov_val,
-        "df_cov_test": df_cov_test,
-    }
+    if not show_covariates:
+        dfs = {
+            "df_train": df_train,
+            "df_val": df_val,
+            "df_test": df_test,
+        }
+    else:
+        dfs = {
+            "df_train": df_train,
+            "df_val": df_val,
+            "df_test": df_test,
+            "df_cov_train": df_cov_train,
+            "df_cov_val": df_cov_val,
+            "df_cov_test": df_cov_test,
+        }
 
     # Create an empty figure
     fig = go.Figure()
@@ -575,8 +583,8 @@ def plot_location_splits(dir_path):
             go.Scatter(x=df.index, y=df[df.columns[0]], mode="lines", name=name)
         )
 
+    print(f"Location: {location}")
     fig.show()
-
     return fig
 
 
@@ -639,5 +647,4 @@ def derive_config_params(config):
     config.n_ahead = config.horizon_in_hours * config.timesteps_per_hour
     # evaluation stride, how often to evaluate the model, in this case we evaluate every n_ahead steps
     config.eval_stride = int(np.sqrt(config.n_ahead))
-    config.unit = units_dict[config.spatial_scale.split("_")[1]]
     return config

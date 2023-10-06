@@ -22,6 +22,7 @@ from utils import (
     check_if_torch_model,
     derive_config_params,
     load_data,
+    get_hdf_keys,
 )
 
 import darts
@@ -102,6 +103,11 @@ class Config:
             config[key] = value  # Preserve nested dictionaries without converting
         return config
 
+    def copy(self):
+        new_instance = Config()
+        new_instance.data = self.data.copy()
+        return new_instance
+
 
 def initialize_kwargs(config, model_class, additional_kwargs=None):
     """Initializes the kwargs for the model with the available wandb sweep config or with the default values."""
@@ -118,9 +124,9 @@ def initialize_kwargs(config, model_class, additional_kwargs=None):
             sweep_config = json.load(f)["parameters"]
     except:
         sweep_config = {}
-        print(f"Could not find sweep config for model {model_name}")
+        print(f"Could not find sweep config for model {model_name} saved locally")
 
-    kwargs = {k: config.__getitem__(k) for k in sweep_config.keys()}
+    kwargs = config.data
 
     if additional_kwargs is not None:
         kwargs.update(additional_kwargs)
@@ -143,6 +149,7 @@ def initialize_kwargs(config, model_class, additional_kwargs=None):
 
         kwargs = {key: value for key, value in kwargs.items() if key in valid_keywords}
 
+    print(kwargs)
     return kwargs
 
 
@@ -305,7 +312,6 @@ def get_model_instances(models: List, config_per_model: Dict) -> Dict:
     for model in models:
         print("Getting model instance for " + model + "...")
         model_config = Config().from_dict(config_per_model[model])
-        print(model_config.n_ahead)
         model_instances[model] = get_model(model_config)
 
     # since we did not optimize the hyperparameters for the linear regression model, we need to create a new instance
@@ -340,7 +346,7 @@ def get_best_run_config(project_name, metric, model, scale, location: str):
     name = None
     transformer = location.split("-")[0]
     for sweep in sweeps:
-        if model in sweep.name and scale in sweep.name and transformer in sweep.name:
+        if model in sweep.name and scale in sweep.name:
             best_run = sweep.best_run(order=metric)
             config = best_run.config
             config = Config().from_dict(config)
@@ -455,6 +461,47 @@ def data_pipeline(config, data):
     return piped_data, pipeline
 
 
+def load_auxilary_training_data(config):
+    """To enhance the current locations trainign data with the val and test sets of locations on the same scale"""
+
+    list_auxilary_data = []
+    if config.use_auxilary_data:
+        for auxilary_location in get_hdf_keys(dir_path)[0][
+            config.spatial_scale + ".h5"
+        ]:
+            auxilary_config = config.copy()
+            if auxilary_location != config.location:
+                auxilary_config.location = auxilary_location
+                auxilary_data = load_data(auxilary_config)
+                list_auxilary_data.append(auxilary_data)
+
+    return list_auxilary_data
+
+
+def pipeline_auxilary_data(config, list_auxilary_data):
+    if len(list_auxilary_data) == 0:
+        return [], []
+
+    auxilary_training_data_trg = []
+    auxilary_training_data_cov = []
+    for auxilary_data in list_auxilary_data:
+        auxilary_piped_data, aux_pipeline = data_pipeline(config, auxilary_data)
+        (
+            _,
+            aux_ts_val_piped,
+            aux_ts_test_piped,
+            _,
+            aux_ts_val_weather_piped,
+            aux_ts_test_weather_piped,
+        ) = auxilary_piped_data
+        auxilary_training_data_trg.append(aux_ts_val_piped[0])
+        auxilary_training_data_cov.append(aux_ts_val_weather_piped[0])  # type: ignore
+        auxilary_training_data_trg.append(aux_ts_test_piped[0])
+        auxilary_training_data_cov.append(aux_ts_test_weather_piped[0])  # type: ignore
+
+    return auxilary_training_data_trg, auxilary_training_data_cov
+
+
 def train_models(config, untrained_models, config_per_model):
     """
     This function does the actual training and is used by 'training'.
@@ -468,6 +515,8 @@ def train_models(config, untrained_models, config_per_model):
 
     data = load_data(config)
 
+    aux_data = load_auxilary_training_data(config)
+
     models = []
 
     for model_abbr, model in untrained_models.items():
@@ -478,6 +527,8 @@ def train_models(config, untrained_models, config_per_model):
 
         piped_data, _ = data_pipeline(model_config, data)
 
+        aux_trg, aux_cov = pipeline_auxilary_data(model_config, aux_data)
+
         (
             ts_train_piped,
             ts_val_piped,
@@ -486,6 +537,9 @@ def train_models(config, untrained_models, config_per_model):
             ts_val_weather_piped,
             ts_test_weather_piped,
         ) = piped_data
+
+        ts_train_piped.extend(aux_trg)
+        ts_train_weather_piped.extend(aux_cov)
 
         if model.supports_future_covariates:
             try:
@@ -583,8 +637,8 @@ def training(init_config: Dict):
 if __name__ == "__main__":
     # argparse scale and location
     parser = argparse.ArgumentParser()
-    parser.add_argument("--scale", type=str, default="2_town")
-    parser.add_argument("--location", type=str, default="GLENDOVEER-13598")
+    parser.add_argument("--scale", type=str, default="GLENDOVEER")
+    parser.add_argument("--location", type=str, default="13596.(MWh)")
     parser.add_argument("--models_to_train", nargs="+", type=str, default=["xgb"])
     args = parser.parse_args()
 
@@ -602,6 +656,7 @@ if __name__ == "__main__":
         "heat_wave_binary": True,
         "datetime_attributes": ["dayofweek", "week"],
         "use_cov_as_past_cov": False,
+        "use_auxilary_data": True,
     }
 
     wandb.login()
