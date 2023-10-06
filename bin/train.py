@@ -44,7 +44,7 @@ from paths import ROOT_DIR
 
 def initialize_kwargs(config, model_class, additional_kwargs=None):
     """Initializes the kwargs for the model with the available wandb sweep config or with the default values."""
-    model_name = config.model
+    model_name = config.model_abbr
     is_torch_model = check_if_torch_model(
         model_class
     )  # we will handle torch models a bit differently than sklearn-API type models
@@ -88,7 +88,7 @@ def initialize_kwargs(config, model_class, additional_kwargs=None):
 def get_model(config):
     """Returns model instance, based on the models specified in the config."""
 
-    model_abbr = config.model
+    model_abbr = config.model_abbr
 
     # ----------------- #
 
