@@ -111,6 +111,7 @@ if __name__ == "__main__":
         "datetime_attributes": ["dayofweek", "week"],
         "use_cov_as_past_cov": False,
         "use_auxilary_data": True,
+        "eval_seasons": ["Summer", "Winter"],
     }
 
     wandb.login()

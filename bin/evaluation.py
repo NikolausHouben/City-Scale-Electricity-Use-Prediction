@@ -311,14 +311,8 @@ def evaluate(init_config: Dict, models_dict: Dict):
             ),
         }
 
-        test_sets = {  # see data_prep.ipynb for the split
-            "Summer": (
-                ts_test_piped[longest_ts_test_idx],
-                None
-                if not config.weather_available
-                else ts_test_weather_piped[longest_ts_test_idx],  # type: ignore
-                trg_test_inversed,
-            ),
+        test_sets = {
+            k: v for k, v in test_sets.items() if k in init_config.eval_seasons
         }
 
         dict_result_season = backtesting(models_dict, pipeline, test_sets, config)

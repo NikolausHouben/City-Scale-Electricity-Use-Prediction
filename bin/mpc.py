@@ -274,7 +274,7 @@ def run_mpc(df_fc, results_dir):
     # input parameters
     #############################################
 
-    hours_of_simulation = df_fc.shape[0] - 1  # hours of simulation
+    hours_of_simulation = df_fc.shape[0] - 25  # hours of simulation
 
     timesteps_per_hour = infer_frequency(df_fc) // 60
     df_scaled, gt_max, gt_min = scale_by_gt(df_fc)
