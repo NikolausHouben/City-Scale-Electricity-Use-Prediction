@@ -90,7 +90,7 @@ if __name__ == "__main__":
         "--models_to_train",
         nargs="+",
         type=str,
-        default=["rf"],
+        default=["rf", "xgb", "gru", "nbeats"],
     )
     parser.add_argument("--evaluate", type=bool, default=False)
     args = parser.parse_args()
@@ -128,7 +128,7 @@ if __name__ == "__main__":
         + str(init_config["use_auxilary_data"])
     )
     wandb.init(
-        project="Portland_AMI_2", name=name_id, id=name_id
+        project="Portland_AMI", name=name_id, id=name_id
     )  # set id to continue existing runs
     config, models_dict = training(init_config)
 

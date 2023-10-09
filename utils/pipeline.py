@@ -193,7 +193,7 @@ def load_auxilary_training_data(config):
                 auxilary_data = load_data(auxilary_config)
                 list_auxilary_data.append(auxilary_data)
 
-    return list_auxilary_data[:2]
+    return list_auxilary_data[:4]
 
 
 def pipeline_auxilary_data(config, list_auxilary_data):
@@ -264,7 +264,7 @@ def load_data(config):
     df_train = pd.read_hdf(
         os.path.join(CLEAN_DATA_DIR, f"{config.spatial_scale}.h5"),
         key=f"{config.location}/{config.temp_resolution}min/train_target",
-    )[:500]
+    )
     df_val = pd.read_hdf(
         os.path.join(CLEAN_DATA_DIR, f"{config.spatial_scale}.h5"),
         key=f"{config.location}/{config.temp_resolution}min/val_target",
@@ -277,7 +277,7 @@ def load_data(config):
     df_cov_train = pd.read_hdf(
         os.path.join(CLEAN_DATA_DIR, f"{config.spatial_scale}.h5"),
         key=f"{config.location}/{config.temp_resolution}min/train_cov",
-    )[:500]
+    )
     df_cov_val = pd.read_hdf(
         os.path.join(CLEAN_DATA_DIR, f"{config.spatial_scale}.h5"),
         key=f"{config.location}/{config.temp_resolution}min/val_cov",
