@@ -24,19 +24,13 @@ from utils.data_utils import (
     get_latest_plotly_plots,
     download_plotly_plots,
     side_by_side_df,
+    select_horizon,
+    create_directory,
 )
 import numpy as np
 import wandb
 
 from utils.paths import ROOT_DIR
-
-project_name = "Portland_AMI_2"
-run = wandb.init(
-    project=project_name,
-    name="mpc_runs",
-    id="mpc_runs",
-    resume=True,
-)
 
 
 def get_forecasts(df, h, fc_type, horizon):
@@ -275,12 +269,12 @@ def generate_ep_profile(df, hour_shift=1, mu=0.05, sigma=0.1):
     return ep4
 
 
-def run_mpc(df_fc):
+def run_mpc(df_fc, results_dir):
     ##############################################
     # input parameters
     #############################################
 
-    hours_of_simulation = 600
+    hours_of_simulation = df_fc.shape[0] - 1  # hours of simulation
 
     timesteps_per_hour = infer_frequency(df_fc) // 60
     df_scaled, gt_max, gt_min = scale_by_gt(df_fc)
@@ -360,29 +354,46 @@ def run_mpc(df_fc):
         )
     cost_results = pd.DataFrame(cost_results).T
 
-    cost_results.to_csv(os.path.join(ROOT_DIR, "data", "results", "costs.csv"))
-    results.to_csv(os.path.join(ROOT_DIR, "data", "results", "results.csv"))
+    cost_results.to_csv(os.path.join(results_dir, "costs.csv"))
+    results.to_csv(os.path.join(results_dir, "results.csv"))
 
 
 def main():
     parser = argparse.ArgumentParser(description="Run MPC")
-    parser.add_argument("--run", type=str, help="Spatial scale and location")
-    parser.add_argument("--season", type=str, help="Winter or summer")
+    parser.add_argument(
+        "--spatial_scale", type=str, help="Spatial scale", default="RAMAPO"
+    )
+    parser.add_argument("--location", type=str, help="Location", default="RAMAPO")
+    parser.add_argument("--season", type=str, help="Winter or Summer", default="Summer")
+    parser.add_argument("--horizon", type=int, help="MPC horizon", default=24)
     args = parser.parse_args()
 
-    # load data
+    MPC_RESULTS_DIR = os.path.join(
+        ROOT_DIR, "data", "results", "mpc_results", args.spatial_scale, args.location
+    )
+    create_directory(MPC_RESULTS_DIR)
 
     # Initialize your project
+
+    project_name = "Portland_AMI"
+    run = wandb.init(
+        project=project_name,
+        name="mpc_runs",
+        id="mpc_runs",
+        resume=True,
+    )
     api = wandb.Api()
-    runs = api.runs("Portland_AMI_2")
+    runs = api.runs(project_name)
     name_id_dict = get_run_name_id_dict(runs)
-    files = get_file_names(project_name, name_id_dict, args.run, args.season)
+    files = get_file_names(
+        project_name, name_id_dict, args.spatial_scale, args.location, args.season
+    )
     side_by_side_plots_dict = download_plotly_plots(get_latest_plotly_plots(files))
     df_all = side_by_side_df(side_by_side_plots_dict)
 
-    df_fc = df_all.iloc[:, -3:]
+    df_fc = select_horizon(df_all, args.horizon)
 
-    run_mpc(df_fc)
+    run_mpc(df_fc, MPC_RESULTS_DIR)
 
 
 if __name__ == "__main__":

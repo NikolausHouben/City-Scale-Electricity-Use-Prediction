@@ -346,7 +346,8 @@ def check_if_same_horizon_plot(file1, file2):
         return True
 
 
-def get_file_names(project_name, name_id_dict, run_to_visualize, season):
+def get_file_names(project_name, name_id_dict, spatial_scale, location, season):
+    run_to_visualize = f"{spatial_scale}_{location}"
     run = api.run(f"wattcast/{project_name}/{name_id_dict[run_to_visualize]}")
     files = []
     for file in run.files():
@@ -418,6 +419,16 @@ def side_by_side_df(side_by_side_plots_dict):
     return df_all
 
 
+def select_horizon(df_all, horizon):
+    df_fc = df_all.filter(regex=f"Horizon: {horizon} Hours")  # filtering by horizon
+    df_fc = pd.concat(
+        [df_fc, df_all["Ground Truth"]], axis=1
+    )  # adding ground truth back to the dataframe
+    columns_to_drop = df_fc.filter(like="Persistence").columns
+    df_fc = df_fc.drop(columns_to_drop, axis=1)
+    return df_fc
+
+
 def get_best_model_per_scale_and_horizon(df, metric):
     """
     Gets the model with the best performance for each scale and horizon based in a pd.DataFrame with the error scores of the models,
@@ -440,12 +451,10 @@ def get_run_name_id_dict(runs):
     """Loops through all runs and returns a dictionary of run names and ids"""
     name_id_dict = {}
     for run_ in runs:
-        l = run_.name.split("_")[:-1]
-        l.insert(2, "in")
-        n = "_".join(l)
-        # remove the _ around in
-        n = n.replace("_in_", "in")
-        name_id_dict[n] = run_.id
+        if not "results" in run_.name:
+            scale = run_.name.split("_")[0]
+            location = run_.name.split("_")[1].split(".")[0]
+            name_id_dict[f"{scale}_{location}"] = run_.id
     return name_id_dict
 
 
