@@ -186,7 +186,7 @@ def run_operations(
     energy_in_the_battery = bat_size_kwh * initial_soc
 
     operations = {}
-    for t in fc.index[:hours_of_simulation]:
+    for t in fc.index[:30]:
         # get load forecast as a list
         load = get_forecasts(df=fc, h=t, fc_type=fc_type, horizon=horizon)
 
@@ -274,7 +274,7 @@ def run_mpc(df_fc, results_dir):
     # input parameters
     #############################################
 
-    hours_of_simulation = df_fc.shape[0] - 25  # hours of simulation
+    hours_of_simulation = df_fc.shape[0] - 48  # hours of simulation
 
     timesteps_per_hour = infer_frequency(df_fc) // 60
     df_scaled, gt_max, gt_min = scale_by_gt(df_fc)

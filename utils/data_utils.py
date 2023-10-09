@@ -451,7 +451,7 @@ def get_run_name_id_dict(runs):
     """Loops through all runs and returns a dictionary of run names and ids"""
     name_id_dict = {}
     for run_ in runs:
-        if not "results" in run_.name:
+        if not "results" in run_.name or not "mpc" in run_.name:
             scale = run_.name.split("_")[0]
             location = run_.name.split("_")[1].split(".")[0]
             name_id_dict[f"{scale}_{location}"] = run_.id
@@ -469,7 +469,7 @@ def remove_outliers(df, column, lower_percentile=0, upper_percentile=100):
     return df
 
 
-def plot_location_splits(dir_path, scale_idx, location_idx, show_covariates=False):
+def plot_location_splits(dir_path, scale_idx, location_idx, show="trg"):
     locations, temps = get_hdf_keys(dir_path)
 
     spatial_scale = list(locations.keys())[scale_idx]
@@ -502,13 +502,19 @@ def plot_location_splits(dir_path, scale_idx, location_idx, show_covariates=Fals
         key=f"{location}/{temp_resolution}/test_cov",
     )
 
-    if not show_covariates:
+    if show == "trg":
         dfs = {
             "df_train": df_train,
             "df_val": df_val,
             "df_test": df_test,
         }
-    else:
+    elif show == "cov":
+        dfs = {
+            "df_cov_train": df_cov_train,
+            "df_cov_val": df_cov_val,
+            "df_cov_test": df_cov_test,
+        }
+    else:  # assuming show="both"
         dfs = {
             "df_train": df_train,
             "df_val": df_val,
@@ -518,17 +524,35 @@ def plot_location_splits(dir_path, scale_idx, location_idx, show_covariates=Fals
             "df_cov_test": df_cov_test,
         }
 
-    # Create an empty figure
     fig = go.Figure()
 
-    # For each dataframe in the dictionary, create a line plot trace
     for name, df in dfs.items():
+        if "cov" in name and show == "both":
+            yaxis = "y2"
+        else:
+            yaxis = "y1"
+
         fig.add_trace(
-            go.Scatter(x=df.index, y=df[df.columns[0]], mode="lines", name=name)
+            go.Scatter(
+                x=df.index, y=df[df.columns[0]], mode="lines", name=name, yaxis=yaxis
+            )
         )
 
-    # Extract the location from the column and set the title and y-axis label
+    # Setting up the layout based on the 'show' parameter
     loc_from_col = df_train.columns[0].split(".")[0]
-    fig.update_layout(title=f"Load Data for {loc_from_col}", yaxis_title="Load [MW]")
+    if show == "trg":
+        fig.update_layout(
+            title=f"Target Data for {loc_from_col}", yaxis_title="Load [MW]"
+        )
+    elif show == "cov":
+        fig.update_layout(
+            title=f"Covariate Data for {loc_from_col}", yaxis_title="Temperature [°C]"
+        )
+    else:
+        fig.update_layout(
+            title=f"Data for {loc_from_col}",
+            yaxis=dict(title="Load [MW]"),
+            yaxis2=dict(title="Temperature [°C]", overlaying="y", side="right"),
+        )
     fig.show()
     return fig
