@@ -518,6 +518,8 @@ def plot_location_splits(dir_path, scale_idx, location_idx, show_covariates=Fals
             go.Scatter(x=df.index, y=df[df.columns[0]], mode="lines", name=name)
         )
 
-    print(f"Location: {location}")
+    # Extract the location from the column and set the title and y-axis label
+    loc_from_col = df_train.columns[0].split(".")[0]
+    fig.update_layout(title=f"Load Data for {loc_from_col}", yaxis_title="Load [MW]")
     fig.show()
     return fig
