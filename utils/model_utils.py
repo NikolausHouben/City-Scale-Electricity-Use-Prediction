@@ -28,10 +28,10 @@ from .data_utils import create_directory
 
 from utils.pipeline import (
     Config,
-    load_auxilary_training_data,
+    load_auxiliary_training_data,
     load_data,
     data_pipeline,
-    pipeline_auxilary_data,
+    pipeline_auxiliary_data,
 )
 
 
@@ -336,7 +336,7 @@ def train_models(config, untrained_models, config_per_model):
 
     data = load_data(config)
 
-    aux_data = load_auxilary_training_data(config)
+    aux_data = load_auxiliary_training_data(config)
 
     models = []
 
@@ -348,7 +348,7 @@ def train_models(config, untrained_models, config_per_model):
 
         piped_data, _ = data_pipeline(model_config, data)
 
-        aux_trg, aux_cov = pipeline_auxilary_data(model_config, aux_data)
+        aux_trg, aux_cov = pipeline_auxiliary_data(model_config, aux_data)
 
         (
             ts_train_piped,
@@ -359,7 +359,7 @@ def train_models(config, untrained_models, config_per_model):
             ts_test_weather_piped,
         ) = piped_data
 
-        print("Extended training data with auxilary data")
+        print("Extended training data with auxiliary data")
         ts_train_piped.extend(aux_trg)  # type: ignore
         ts_train_weather_piped.extend(aux_cov)  # type: ignore
 

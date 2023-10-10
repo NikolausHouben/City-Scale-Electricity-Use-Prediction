@@ -179,31 +179,35 @@ def data_pipeline(config, data):
     return piped_data, pipeline
 
 
-def load_auxilary_training_data(config):
+def pick_one_week_of_each_month(df_train):
+    pass
+
+
+def load_auxiliary_training_data(config):
     """To enhance the current locations trainign data with the val and test sets of locations on the same scale"""
 
-    list_auxilary_data = []
-    if config.use_auxilary_data:
-        for auxilary_location in get_hdf_keys(CLEAN_DATA_DIR)[0][
+    list_auxiliary_data = []
+    if config.use_auxiliary_data:
+        for auxiliary_location in get_hdf_keys(CLEAN_DATA_DIR)[0][
             config.spatial_scale + ".h5"
         ]:
-            auxilary_config = config.copy()
-            if auxilary_location != config.location:
-                auxilary_config.location = auxilary_location
-                auxilary_data = load_data(auxilary_config)
-                list_auxilary_data.append(auxilary_data)
+            auxiliary_config = config.copy()
+            if auxiliary_location != config.location:
+                auxiliary_config.location = auxiliary_location
+                auxiliary_data = load_data(auxiliary_config)
+                list_auxiliary_data.append(auxiliary_data)
 
-    return list_auxilary_data[:4]
+    return list_auxiliary_data[:4]
 
 
-def pipeline_auxilary_data(config, list_auxilary_data):
-    if len(list_auxilary_data) == 0:
+def pipeline_auxiliary_data(config, list_auxiliary_data):
+    if len(list_auxiliary_data) == 0:
         return [], []
 
-    auxilary_training_data_trg = []
-    auxilary_training_data_cov = []
-    for auxilary_data in list_auxilary_data:
-        auxilary_piped_data, aux_pipeline = data_pipeline(config, auxilary_data)
+    auxiliary_training_data_trg = []
+    auxiliary_training_data_cov = []
+    for auxiliary_data in list_auxiliary_data:
+        auxiliary_piped_data, _ = data_pipeline(config, auxiliary_data)
         (
             _,
             aux_ts_val_piped,
@@ -211,13 +215,13 @@ def pipeline_auxilary_data(config, list_auxilary_data):
             _,
             aux_ts_val_weather_piped,
             aux_ts_test_weather_piped,
-        ) = auxilary_piped_data
-        auxilary_training_data_trg.append(aux_ts_val_piped[0])
-        auxilary_training_data_cov.append(aux_ts_val_weather_piped[0])  # type: ignore
-        auxilary_training_data_trg.append(aux_ts_test_piped[0])
-        auxilary_training_data_cov.append(aux_ts_test_weather_piped[0])  # type: ignore
+        ) = auxiliary_piped_data
+        auxiliary_training_data_trg.append(aux_ts_val_piped[0])
+        auxiliary_training_data_cov.append(aux_ts_val_weather_piped[0])  # type: ignore
+        auxiliary_training_data_trg.append(aux_ts_test_piped[0])
+        auxiliary_training_data_cov.append(aux_ts_test_weather_piped[0])  # type: ignore
 
-    return auxilary_training_data_trg, auxilary_training_data_cov
+    return auxiliary_training_data_trg, auxiliary_training_data_cov
 
 
 def get_best_run_config(project_name, metric, model, scale, location: str):
@@ -265,6 +269,7 @@ def load_data(config):
         os.path.join(CLEAN_DATA_DIR, f"{config.spatial_scale}.h5"),
         key=f"{config.location}/{config.temp_resolution}min/train_target",
     )
+
     df_val = pd.read_hdf(
         os.path.join(CLEAN_DATA_DIR, f"{config.spatial_scale}.h5"),
         key=f"{config.location}/{config.temp_resolution}min/val_target",
@@ -286,6 +291,16 @@ def load_data(config):
         os.path.join(CLEAN_DATA_DIR, f"{config.spatial_scale}.h5"),
         key=f"{config.location}/{config.temp_resolution}min/test_cov",
     )
+
+    # making the dataframe smaller for tuning
+    if config.tuning:
+        df_train = pick_one_week_of_each_month(df_train)
+        df_val = pick_one_week_of_each_month(df_val)
+        df_test = pick_one_week_of_each_month(df_test)
+
+        df_cov_train = df_cov_train.reindex(df_train.index)
+        df_cov_val = df_cov_val.reindex(df_val.index)
+        df_cov_test = df_cov_test.reindex(df_test.index)
 
     data = {
         "trg": (df_train, df_val, df_test),

@@ -86,6 +86,8 @@ if __name__ == "__main__":
             init_config = json.load(fp)
 
         # sweep specific
+        init_config["tuning"] = True
+        init_config["use_"]
         init_config["spatial_scale"] = args.scale
         init_config["location"] = args.location
         init_config["model_abbr"] = model

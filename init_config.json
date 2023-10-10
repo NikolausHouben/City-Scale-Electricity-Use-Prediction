@@ -1,4 +1,5 @@
 {
+    "tuning": false,
     "spatial_scale": "PLACEHOLDER_SCALE",
     "temp_resolution": 60,
     "location": "PLACEHOLDER_LOCATION",
