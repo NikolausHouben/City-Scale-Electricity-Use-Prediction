@@ -1,0 +1,24 @@
+{
+    "spatial_scale": "PLACEHOLDER_SCALE",
+    "temp_resolution": 60,
+    "location": "PLACEHOLDER_LOCATION",
+    "unit": "MWh",
+    "models_to_train": "PLACEHOLDER_MODELS_TO_TRAIN",
+    "horizon_in_hours": 48,
+    "lookback_in_hours": 24,
+    "boxcox": true,
+    "liklihood": null,
+    "weather_available": true,
+    "datetime_encodings": true,
+    "heat_wave_binary": true,
+    "datetime_attributes": [
+        "dayofweek",
+        "week"
+    ],
+    "use_cov_as_past_cov": false,
+    "use_auxilary_data": true,
+    "eval_seasons": [
+        "Summer",
+        "Winter"
+    ]
+}

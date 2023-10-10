@@ -5,6 +5,7 @@ import argparse
 from typing import List, Dict
 import os
 import sys
+import json
 
 import wandb
 
@@ -23,6 +24,8 @@ from utils.model_utils import (
     get_model_instances,
     train_models,
 )
+
+from utils.paths import ROOT_DIR, EXPERIMENT_WANDB
 
 
 def training(init_config: Dict):
@@ -84,8 +87,8 @@ def training(init_config: Dict):
 if __name__ == "__main__":
     # argparse scale and location
     parser = argparse.ArgumentParser()
-    parser.add_argument("--scale", type=str, default="GLENDOVEER")
-    parser.add_argument("--location", type=str, default="13598.MWh")
+    parser.add_argument("--scale", type=str)
+    parser.add_argument("--location", type=str)
     parser.add_argument(
         "--models_to_train",
         nargs="+",
@@ -95,24 +98,12 @@ if __name__ == "__main__":
     parser.add_argument("--evaluate", type=bool, default=False)
     args = parser.parse_args()
 
-    init_config = {
-        "spatial_scale": args.scale,
-        "temp_resolution": 60,
-        "location": args.location,
-        "unit": "MWh",
-        "models_to_train": args.models_to_train,
-        "horizon_in_hours": 48,
-        "lookback_in_hours": 24,
-        "boxcox": True,
-        "liklihood": None,
-        "weather_available": True,
-        "datetime_encodings": True,
-        "heat_wave_binary": True,
-        "datetime_attributes": ["dayofweek", "week"],
-        "use_cov_as_past_cov": False,
-        "use_auxilary_data": True,
-        "eval_seasons": ["Summer", "Winter"],
-    }
+    with open(os.path.join(ROOT_DIR, "init_config.json"), "r") as fp:
+        init_config = json.load(fp)
+
+    init_config["spatial_scale"] = args.scale
+    init_config["location"] = args.location
+    init_config["models_to_train"] = args.models_to_train
 
     wandb.login()
     # starting wandb run
@@ -129,7 +120,7 @@ if __name__ == "__main__":
         + str(init_config["use_auxilary_data"])
     )
     wandb.init(
-        project="Portland_AMI", name=name_id, id=name_id
+        project=EXPERIMENT_WANDB, name=name_id, id=name_id
     )  # set id to continue existing runs
     config, models_dict = training(init_config)
 

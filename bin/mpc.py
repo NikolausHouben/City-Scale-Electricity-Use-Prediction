@@ -30,7 +30,7 @@ from utils.data_utils import (
 import numpy as np
 import wandb
 
-from utils.paths import ROOT_DIR
+from utils.paths import ROOT_DIR, SYNTHESIS_WANDB
 
 
 def get_forecasts(df, h, fc_type, horizon):
@@ -375,7 +375,7 @@ def main():
 
     # Initialize your project
 
-    project_name = "Portland_AMI"
+    project_name = SYNTHESIS_WANDB
     run = wandb.init(
         project=project_name,
         name="mpc_runs",

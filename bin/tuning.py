@@ -11,7 +11,7 @@ import plotly.express as px
 import wandb
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils.paths import SWEEP_DIR
+from utils.paths import ROOT_DIR, SWEEP_DIR, TUNING_WANDB
 
 from utils.pipeline import load_data, derive_config_params, data_pipeline
 
@@ -23,7 +23,7 @@ from evaluation import predict_testset
 
 
 def train_eval_tuning():
-    wandb.init(project="Portland_AMI_tuning")
+    wandb.init(project=TUNING_WANDB)
     wandb.config.update(init_config)
     config = wandb.config
 
@@ -68,8 +68,8 @@ def train_eval_tuning():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--scale", type=str, default="GLENDOVEER")
-    parser.add_argument("--location", type=str, default="13596.MWh")
+    parser.add_argument("--scale", type=str)
+    parser.add_argument("--location", type=str)
     parser.add_argument("--n_sweeps", type=int, default=1)
     parser.add_argument(
         "--models_to_train",
@@ -81,22 +81,14 @@ if __name__ == "__main__":
 
     for model in args.models_to_train:
         # placeholder initialization of config file (will be updated in train_eval_light())
-        init_config = {
-            "spatial_scale": args.scale,
-            "temp_resolution": 60,
-            "location": args.location,
-            "model_abbr": model,
-            "horizon_in_hours": 24,
-            "lookback_in_hours": 24,
-            "boxcox": True,
-            "liklihood": None,
-            "weather_available": True,
-            "datetime_encodings": True,
-            "heat_wave_binary": True,
-            "datetime_attributes": ["dayofweek", "week"],
-            "use_cov_as_past_cov": False,
-            "use_auxilary_data": False,
-        }
+
+        with open(os.path.join(ROOT_DIR, "init_config.json"), "r") as fp:
+            init_config = json.load(fp)
+
+        # sweep specific
+        init_config["spatial_scale"] = args.scale
+        init_config["location"] = args.location
+        init_config["model_abbr"] = model
 
         with open(os.path.join(SWEEP_DIR, f"config_sweep_{model}.json"), "r") as fp:
             sweep_config = json.load(fp)
@@ -111,6 +103,6 @@ if __name__ == "__main__":
             + str(init_config["temp_resolution"])
         )
 
-        sweep_id = wandb.sweep(sweep_config, project="Portland_AMI_tuning")
+        sweep_id = wandb.sweep(sweep_config, project=TUNING_WANDB)
         wandb.agent(sweep_id, train_eval_tuning, count=args.n_sweeps)
         wandb.finish()
