@@ -20,8 +20,10 @@ from darts.models import (
     TiDEModel,
 )
 
+import wandb
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from .paths import ROOT_DIR, MODEL_DIR
+from .paths import ROOT_DIR, MODEL_DIR, EXPERIMENT_WANDB, TUNING_WANDB
 from .data_utils import create_directory
 
 from utils.pipeline import (
@@ -36,11 +38,15 @@ from utils.pipeline import (
 def save_models_to_disk(config, newly_trained_models: List):
     create_directory(MODEL_DIR)
     for model in newly_trained_models:
-        model_path = os.path.join(
-            MODEL_DIR, config.spatial_scale, config.location.split(".")[0]
-        )
+        model_path = os.path.join(MODEL_DIR, config.spatial_scale, config.location)
         create_directory(model_path)
         model.save(os.path.join(model_path, model.__class__.__name__ + ".joblib"))
+
+
+def log_models_to_wandb(config, newly_trained_models: List):
+    for model in newly_trained_models:
+        model_path = os.path.join(MODEL_DIR, config.spatial_scale, config.location)
+        wandb.save(os.path.join(model_path, model.__class__.__name__ + ".joblib"))
 
 
 def check_if_torch_model(obj):
@@ -96,11 +102,11 @@ def initialize_kwargs(config, model_class, additional_kwargs=None):
         model_class
     )  # we will handle torch models a bit differently than sklearn-API type models
 
-    sweep_path = os.path.join(
+    SWEEP_CONFIG_PATH = os.path.join(
         ROOT_DIR, "sweep_configurations", f"config_sweep_{model_name}.json"
     )
     try:
-        with open(sweep_path) as f:
+        with open(SWEEP_CONFIG_PATH) as f:
             sweep_config = json.load(f)["parameters"]
     except:
         sweep_config = {}

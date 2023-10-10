@@ -23,6 +23,7 @@ from utils.model_utils import (
     save_models_to_disk,
     get_model_instances,
     train_models,
+    log_models_to_wandb,
 )
 
 from utils.paths import ROOT_DIR, EXPERIMENT_WANDB
@@ -76,6 +77,9 @@ def training(init_config: Dict):
         ).reset_index()
         wandb.log({"runtimes": wandb.Table(dataframe=df_runtimes)})
         save_models_to_disk(config, newly_trained_models)
+        log_models_to_wandb(
+            config, newly_trained_models
+        )  # TODO make sure this works properly
         trained_models.extend(newly_trained_models)
 
     models_dict = {model.__class__.__name__: model for model in trained_models}
