@@ -311,9 +311,7 @@ def evaluate(init_config: Dict, models_dict: Dict):
             ),
         }
 
-        test_sets = {
-            k: v for k, v in test_sets.items() if k in init_config.eval_seasons
-        }
+        test_sets = {k: v for k, v in test_sets.items() if k in config.eval_seasons}
 
         dict_result_season = backtesting(models_dict, pipeline, test_sets, config)
         dict_result_n_ahead = extract_forecasts_per_horizon(config, dict_result_season)
