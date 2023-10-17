@@ -62,6 +62,8 @@
         },
         "lookback_in_hours": {
             "values": [
+                24,
+                48,
                 72
             ]
         }

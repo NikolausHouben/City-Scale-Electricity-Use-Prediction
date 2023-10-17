@@ -1,16 +1,14 @@
 declare -A KEYS=(
-    ["GLENDOVEER"]="13596.MWh" # 13597.MWh 13598.MWh 13599.MWh CLIFFGATE.MWh NORTHEAST.MWh"
-    # ["LENTS"]="13101.MWh HAPPY.VALLEY.MWh MT.SCOTT.MWh NORTH.MWh"
-    # ["MIDWAY"]="DIVISION.MWh DOUGLAS.MWh LYNCH.MWh POWELLHURST.MWh"
-    # ["RAMAPO"]="EMERALD.MWh GILBERT.MWh RAMAPO.13.MWh"
-    # ["KELLY.BUTTE"]="BINNSMEAD.MWh FAIRLAWN.MWh MALL.205.MWh MCGREW.MWh"
+    #["5_building"]="building_0 building_1 building_2"
+    #["4_neighborhood"]="neighborhood_0 neighborhood_1 neighborhood_2"
+    #["3_village"]="village_0 village_1 village_2"
+    #["2_town"]="town_0 town_1 town_2"
+    ["1_county"]="Los_Angeles" # New_York Sacramento"
 )
 
 # Iterate over the KEYS
 for scale in "${!KEYS[@]}"; do
     for location in ${KEYS[$scale]}; do
-
-        python bin/tuning.py --scale "$scale" --location "$location" --evaluate True
+        python bin/tuning.py --scale "$scale" --location "$location" --n_sweeps 3
     done
 done
-

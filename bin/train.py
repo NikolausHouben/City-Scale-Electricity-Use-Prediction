@@ -108,6 +108,7 @@ if __name__ == "__main__":
     init_config["spatial_scale"] = args.scale
     init_config["location"] = args.location
     init_config["models_to_train"] = args.models_to_train
+    init_config["use_auxiliary_data"] = True
 
     wandb.login()
     # starting wandb run
@@ -121,7 +122,7 @@ if __name__ == "__main__":
         + "min"
         + "_"
         + "aux_data--"
-        + str(init_config["use_auxilary_data"])
+        + str(init_config["use_auxiliary_data"])
     )
     wandb.init(
         project=EXPERIMENT_WANDB, name=name_id, id=name_id

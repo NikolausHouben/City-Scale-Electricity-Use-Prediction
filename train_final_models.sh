@@ -1,11 +1,11 @@
 #!/usr/local/bin/bash
 
 declare -A KEYS=(
-    ["GLENDOVEER"]="13597.MWh 13597.MWh 13598.MWh 13599.MWh CLIFFGATE.MWh NORTHEAST.MWh"
-    ["LENTS"]="13101.MWh HAPPY.VALLEY.MWh MT.SCOTT.MWh NORTH.MWh"
-    ["MIDWAY"]="DIVISION.MWh DOUGLAS.MWh LYNCH.MWh POWELLHURST.MWh"
-     ["RAMAPO"]="EMERALD.MWh GILBERT.MWh RAMAPO.13.MWh"
-     ["KELLY.BUTTE"]="BINNSMEAD.MWh FAIRLAWN.MWh MALL.205.MWh MCGREW.MWh"
+    #["5_building.h5"]="building_0 building_1 building_2"
+    #["4_neighborhood.h5"]="neighborhood_0 neighborhood_1 neighborhood_2"
+    #["3_village.h5"]="village_0 village_1 village_2"
+    #["2_town.h5"]="town_0 town_1 town_2"
+    ["1_county.h5"]="Los_Angeles" # New_York Sacramento"
 )
 
 # Iterate over the KEYS

@@ -20,7 +20,7 @@ import wandb
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from .paths import CLEAN_DATA_DIR
-from .data_utils import get_hdf_keys, review_subseries
+from .data_utils import get_hdf_keys, review_subseries, select_first_week_of_each_month
 
 
 class Config:
@@ -83,6 +83,7 @@ class Config:
 
 def data_pipeline(config, data):
     trg, cov = data["trg"], data["cov"]
+
     df_train, df_val, df_test = trg
     df_cov_train, df_cov_val, df_cov_test = cov
 
@@ -177,10 +178,6 @@ def data_pipeline(config, data):
     )
 
     return piped_data, pipeline
-
-
-def pick_one_week_of_each_month(df_train):
-    pass
 
 
 def load_auxiliary_training_data(config):
@@ -294,13 +291,8 @@ def load_data(config):
 
     # making the dataframe smaller for tuning to save time
     if config.tuning:
-        df_train = pick_one_week_of_each_month(df_train)
-        df_val = pick_one_week_of_each_month(df_val)
-        df_test = pick_one_week_of_each_month(df_test)
-
+        df_train = select_first_week_of_each_month(df_train, config)
         df_cov_train = df_cov_train.reindex(df_train.index)
-        df_cov_val = df_cov_val.reindex(df_val.index)
-        df_cov_test = df_cov_test.reindex(df_test.index)
 
     data = {
         "trg": (df_train, df_val, df_test),

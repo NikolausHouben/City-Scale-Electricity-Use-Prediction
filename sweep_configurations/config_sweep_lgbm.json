@@ -65,15 +65,12 @@
                 0
             ]
         },
-        "lookback_in_hours":
-        {
+        "lookback_in_hours": {
             "values": [
-                12,
                 24,
                 48,
                 72
             ]
         }
-
     }
 }

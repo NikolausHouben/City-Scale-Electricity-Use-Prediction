@@ -231,6 +231,26 @@ def get_df_diffs(df_list):
 ### Transformations & Cleaning
 
 
+def select_first_week_of_each_month(df, config):
+    # Ensure that the DataFrame has a datetime index
+    if not isinstance(df.index, pd.DatetimeIndex):
+        raise ValueError("The DataFrame must have a datetime index.")
+
+    # Create an empty DataFrame to store the selected data
+    selected_data = pd.DataFrame()
+
+    # Iterate through each month
+    for year_month, group in df.groupby(df.index.to_period("M")):
+        # Check if there are enough days in the month for a full week
+        if len(group) >= 7 * config.timesteps_per_hour * 24:
+            # Select one week of data from the month
+            selected_week = group.head(7 * config.timesteps_per_hour * 24)
+            # Append the selected week to the result
+            selected_data = selected_data.append(selected_week)  # type: ignore
+
+    return selected_data
+
+
 def standardize_format(
     df: pd.DataFrame, type: str, timestep: int, location: str, unit: str
 ):

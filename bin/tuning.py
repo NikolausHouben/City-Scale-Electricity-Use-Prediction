@@ -26,11 +26,11 @@ def train_eval_tuning():
     wandb.init(project=TUNING_WANDB)
     wandb.config.update(init_config)
     config = wandb.config
+    config = derive_config_params(config)
 
     print("Getting data...")
 
     data = load_data(config)
-    config = derive_config_params(config)
     piped_data, pipeline = data_pipeline(config, data)
 
     _, _, ts_test_piped, _, _, ts_test_weather_piped = piped_data
@@ -68,14 +68,14 @@ def train_eval_tuning():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--scale", type=str)
-    parser.add_argument("--location", type=str)
+    parser.add_argument("--scale", type=str, default="1_county")
+    parser.add_argument("--location", type=str, default="Los_Angeles")
     parser.add_argument("--n_sweeps", type=int, default=1)
     parser.add_argument(
         "--models_to_train",
         nargs="+",
         type=str,
-        default=["rf", "xgb"],
+        default=["xgb"],
     )
     args = parser.parse_args()
 
@@ -87,7 +87,7 @@ if __name__ == "__main__":
 
         # sweep specific
         init_config["tuning"] = True
-        init_config["use_"]
+        init_config["use_auxiliary_data"] = False
         init_config["spatial_scale"] = args.scale
         init_config["location"] = args.location
         init_config["model_abbr"] = model

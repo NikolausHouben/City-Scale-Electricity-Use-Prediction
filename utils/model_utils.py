@@ -359,9 +359,12 @@ def train_models(config, untrained_models, config_per_model):
             ts_test_weather_piped,
         ) = piped_data
 
-        print("Extended training data with auxiliary data")
-        ts_train_piped.extend(aux_trg)  # type: ignore
-        ts_train_weather_piped.extend(aux_cov)  # type: ignore
+        if len(aux_trg) > 0:
+            print("Extended training data with auxiliary data")
+            ts_train_piped.extend(aux_trg)  # type: ignore
+            ts_train_weather_piped.extend(aux_cov)  # type: ignore
+        else:
+            print("No auxiliary data appended.")
 
         if model.supports_future_covariates:
             try:

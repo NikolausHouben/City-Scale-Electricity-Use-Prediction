@@ -17,7 +17,7 @@
         "week"
     ],
     "use_cov_as_past_cov": false,
-    "use_auxilary_data": true,
+    "use_auxiliary_data": true,
     "eval_seasons": [
         "Summer",
         "Winter"
