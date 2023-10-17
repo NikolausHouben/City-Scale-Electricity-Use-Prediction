@@ -292,7 +292,7 @@ def load_data(config):
         key=f"{config.location}/{config.temp_resolution}min/test_cov",
     )
 
-    # making the dataframe smaller for tuning
+    # making the dataframe smaller for tuning to save time
     if config.tuning:
         df_train = pick_one_week_of_each_month(df_train)
         df_val = pick_one_week_of_each_month(df_val)
