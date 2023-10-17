@@ -75,7 +75,7 @@ if __name__ == "__main__":
         "--models_to_train",
         nargs="+",
         type=str,
-        default=["tft"],
+        default=["rf", "xgb"],
     )
     args = parser.parse_args()
 
