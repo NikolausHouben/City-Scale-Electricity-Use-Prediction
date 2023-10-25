@@ -26,7 +26,7 @@ from utils.model_utils import (
     log_models_to_wandb,
 )
 
-from utils.paths import ROOT_DIR, EXPERIMENT_WANDB
+from utils.paths import ROOT_DIR, EXPERIMENT_WANDB, TUNING_WANDB
 
 
 def training(init_config: Dict):
@@ -43,7 +43,7 @@ def training(init_config: Dict):
     )  # add the default config to the config_per_model dict for linear regression
     for model in models_to_train:
         model_config, _ = get_best_run_config(
-            "Portland_AMI_tuning",
+            TUNING_WANDB,
             "+eval_loss",
             model,
             config.spatial_scale,
@@ -77,9 +77,6 @@ def training(init_config: Dict):
         ).reset_index()
         wandb.log({"runtimes": wandb.Table(dataframe=df_runtimes)})
         save_models_to_disk(config, newly_trained_models)
-        log_models_to_wandb(
-            config, newly_trained_models
-        )  # TODO make sure this works properly
         trained_models.extend(newly_trained_models)
 
     models_dict = {model.__class__.__name__: model for model in trained_models}
@@ -108,7 +105,7 @@ if __name__ == "__main__":
     init_config["spatial_scale"] = args.scale
     init_config["location"] = args.location
     init_config["models_to_train"] = args.models_to_train
-    init_config["use_auxiliary_data"] = True
+    init_config["use_auxiliary_data"] = False
 
     wandb.login()
     # starting wandb run

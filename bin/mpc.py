@@ -15,8 +15,10 @@ import os
 import sys
 import re
 import argparse
+import json
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from utils.data_utils import (
     infer_frequency,
     get_run_name_id_dict,
@@ -30,23 +32,9 @@ from utils.data_utils import (
 import numpy as np
 import wandb
 
-from utils.paths import ROOT_DIR, SYNTHESIS_WANDB
+from utils.paths import ROOT_DIR, SYNTHESIS_WANDB, EXPERIMENT_WANDB
 
-
-def get_forecasts(df, h, fc_type, horizon):
-    df = df.loc[(df.index > h) & (df.index < (h + timedelta(hours=horizon + 1)))]
-    fct = df[fc_type].to_list()
-    return fct
-
-
-def construct_fc_types(df_fc):
-    fc_types = {}
-    for col in df_fc.iloc[:, :-1].columns:
-        horizon = re.findall(r"\d+", col)[0]
-        fc_types[col] = int(horizon)
-
-    fc_types[df_fc.columns[-1]] = max(list(fc_types.values()))
-    return fc_types
+from utils.model_utils import Config
 
 
 def run_opt(
@@ -163,6 +151,22 @@ def run_opt(
     return sp
 
 
+def get_forecasts(df, h, fc_type, horizon):
+    df = df.loc[(df.index > h) & (df.index < (h + timedelta(hours=horizon + 1)))]
+    fct = df[fc_type].to_list()
+    return fct
+
+
+def construct_fc_types(df_fc):
+    fc_types = {}
+    for col in df_fc.iloc[:, :-1].columns:
+        horizon = re.findall(r"\d+", col)[0]
+        fc_types[col] = int(horizon)
+
+    fc_types[df_fc.columns[-1]] = max(list(fc_types.values()))
+    return fc_types
+
+
 def run_operations(
     hours_of_simulation,
     fc,
@@ -186,7 +190,7 @@ def run_operations(
     energy_in_the_battery = bat_size_kwh * initial_soc
 
     operations = {}
-    for t in fc.index[:30]:
+    for t in fc.index[:hours_of_simulation]:  # TODO change to hours_of_simulation
         # get load forecast as a list
         load = get_forecasts(df=fc, h=t, fc_type=fc_type, horizon=horizon)
 
@@ -208,7 +212,7 @@ def run_operations(
             bss_eff=bss_eff,
         )
 
-        # implement set point in time, calculate net and tier load
+        # implement set point in time, calculate net and tier load, this
         set_point_time = t + timedelta(hours=1)
         net_load = fc.loc[set_point_time]["Ground Truth"] + set_point["bss_p_ch"]
         tier1_load = (
@@ -269,31 +273,45 @@ def generate_ep_profile(df, hour_shift=1, mu=0.05, sigma=0.1):
     return ep4
 
 
-def run_mpc(df_fc, results_dir):
+def run_mpc(df_fc, config):
     ##############################################
     # input parameters
     #############################################
 
-    hours_of_simulation = df_fc.shape[0] - 48  # hours of simulation
-
+    hours_of_simulation = 200  # hours of simulation
     timesteps_per_hour = infer_frequency(df_fc) // 60
     df_scaled, gt_max, gt_min = scale_by_gt(df_fc)
 
     # battery parameters
-    initial_soc = 0.5  # initial state of charge of the battery (no unit)
-    bat_size_kwh = 2.0 * timesteps_per_hour  # size of the battery in kWh
-    c_rate = 0.5  # C-rate of the battery
+    initial_soc = config.initial_soc  # initial state of charge of the battery (no unit)
+    bat_size_kwh = config.bat_size_kwh  # size of the battery in kWh
+    c_rate = config.c_rate  # C-rate of the battery
     bat_duration = (
-        bat_size_kwh * timesteps_per_hour / c_rate
+        bat_size_kwh / c_rate
     )  # battery duration (Max_kW = bat_size/duration)
-    bat_efficiency = 0.95  # charging and discharging efficiency of the battery
+    bat_efficiency = (
+        config.bat_efficiency
+    )  # charging and discharging efficiency of the battery
+    tier2_cost_multiplier = (
+        config.tier_cost_multiplier
+    )  # cost multiplication of the tier 2 load
+    cost_of_peak = config.cost_of_peak  # cost of the monthly peak
 
     # electricity price parameters
-    tier_limit = df_scaled["Ground Truth"].quantile(0.95)
-    ep = generate_ep_profile(df=df_scaled, hour_shift=4, mu=0.05, sigma=0.1)
-    tier2_cost_multiplier = 1.5  # cost multiplication of the tier 2 load
-    cost_of_peak = 10  # cost of the monthly peak
+    tier_limit = (
+        df_scaled["Ground Truth"].quantile(0.95)
+        if not config.tier_limit
+        else config.tier_limit
+    )
 
+    # preparing the electricity price profile
+    ep = generate_ep_profile(
+        df=df_scaled,
+        hour_shift=config.energy_price_shift_in_hours,
+        mu=config.energy_price_noise_mu,
+        sigma=config.energy_price_noise_sigma,
+    )
+    # getting the forecast types and their horizons
     fc_types = construct_fc_types(df_fc=df_scaled)
 
     ##############################################
@@ -344,30 +362,29 @@ def run_mpc(df_fc, results_dir):
         cost_results.update(
             {
                 fc_type: {
-                    "horizon": fc_types[fc_type],
+                    "horizon_in_hours": fc_types[fc_type],
                     "tier1": tier1,
                     "tier2": tier2,
                     "peak": peak,
-                    "total": tier1 + tier2 + peak,
+                    "total_cost": tier1 + tier2 + peak,
                 }
             }
         )
+
     cost_results = pd.DataFrame(cost_results).T
 
-    cost_results.to_csv(os.path.join(results_dir, "costs.csv"))
-    results.to_csv(os.path.join(results_dir, "results.csv"))
+    return cost_results, results
 
 
 def main():
     parser = argparse.ArgumentParser(description="Run MPC")
     parser.add_argument(
-        "--spatial_scale", type=str, help="Spatial scale", default="RAMAPO"
+        "--spatial_scale", type=str, help="Spatial scale", default="1_county"
     )
-    parser.add_argument("--location", type=str, help="Location", default="RAMAPO")
+    parser.add_argument("--location", type=str, help="Location", default="Los_Angeles")
     parser.add_argument("--season", type=str, help="Winter or Summer", default="Summer")
     parser.add_argument("--horizon", type=int, help="MPC horizon", default=24)
     args = parser.parse_args()
-
     MPC_RESULTS_DIR = os.path.join(
         ROOT_DIR, "data", "results", "mpc_results", args.spatial_scale, args.location
     )
@@ -375,25 +392,32 @@ def main():
 
     # Initialize your project
 
-    project_name = SYNTHESIS_WANDB
-    run = wandb.init(
-        project=project_name,
-        name="mpc_runs",
-        id="mpc_runs",
-        resume=True,
-    )
+    # project_name = SYNTHESIS_WANDB
+    # run = wandb.init(
+    #     project=project_name,
+    #     name="mpc_runs",
+    #     id="mpc_runs",
+    #     resume=True,
+    # )
+
     api = wandb.Api()
-    runs = api.runs(project_name)
+    runs = api.runs(EXPERIMENT_WANDB)
     name_id_dict = get_run_name_id_dict(runs)
     files = get_file_names(
-        project_name, name_id_dict, args.spatial_scale, args.location, args.season
+        EXPERIMENT_WANDB, name_id_dict, args.spatial_scale, args.location, args.season
     )
     side_by_side_plots_dict = download_plotly_plots(get_latest_plotly_plots(files))
     df_all = side_by_side_df(side_by_side_plots_dict)
-
     df_fc = select_horizon(df_all, args.horizon)
 
-    run_mpc(df_fc, MPC_RESULTS_DIR)
+    with open(os.path.join(ROOT_DIR, "mpc_config.json"), "r") as f:
+        mpc_config = json.load(f)
+
+    config = Config().from_dict(mpc_config)
+
+    cost_results, results = run_mpc(df_fc, config)
+
+    cost_results.to_csv(os.path.join(MPC_RESULTS_DIR, "cost_results.csv"))
 
 
 if __name__ == "__main__":

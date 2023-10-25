@@ -1,3 +1,5 @@
+/usr/local/bin/bash tune_models.sh
+
 declare -A KEYS=(
     #["5_building"]="building_0 building_1 building_2"
     #["4_neighborhood"]="neighborhood_0 neighborhood_1 neighborhood_2"

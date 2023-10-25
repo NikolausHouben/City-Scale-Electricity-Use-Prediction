@@ -237,16 +237,13 @@ def get_best_run_config(project_name, metric, model, scale, location: str):
     config = None
     name = None
     for sweep in sweeps:
-        if model in sweep.name and scale in sweep.name:
+        if model in sweep.name and scale in sweep.name and location in sweep.name:
             best_run = sweep.best_run(order=metric)
             config = best_run.config
             config = Config().from_dict(config)
             name = best_run.name
-            config.model_abbr = config.model
-            del config.data[
-                "model"
-            ]  # hack because in torch models the model attribute is not a string but a class
-            print(f"Fetched sweep with name {name} for model {model}")
+            model_abbr = config.model_abbr
+            print(f"Fetched sweep with name {name} for model {model_abbr}")
 
     if config == None:
         print(

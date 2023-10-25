@@ -2,6 +2,9 @@
 
 """This file contains utility functions that are used in the notebooks."""
 
+
+from itertools import combinations
+
 import os
 import pandas as pd
 import numpy as np
@@ -378,16 +381,18 @@ def get_file_names(project_name, name_id_dict, spatial_scale, location, season):
 
 def get_latest_plotly_plots(files):
     # get the most recent file for each horizon
-    zip_files = zip(files[::2], files[1::2])
-    files_to_plot = []
+    zip_files = combinations(files, 2)
+    files_to_plot = {}
     for file1, file2 in zip_files:
         if check_if_same_horizon_plot(file1, file2):
-            files_to_plot.append(choose_more_recent(file1, file2))
+            file_recent = choose_more_recent(file1, file2)
+            files_to_plot[file_recent._attrs["name"]] = file_recent
         else:
-            files_to_plot.append(file1)
-            files_to_plot.append(file2)
+            files_to_plot[file1._attrs["name"]] = file1
+            files_to_plot[file2._attrs["name"]] = file2
 
-    return files_to_plot
+    files_list = list(files_to_plot.values())
+    return files_list
 
 
 def download_plotly_plots(files_to_plot):
@@ -471,10 +476,9 @@ def get_run_name_id_dict(runs):
     """Loops through all runs and returns a dictionary of run names and ids"""
     name_id_dict = {}
     for run_ in runs:
-        if not "results" in run_.name or not "mpc" in run_.name:
-            scale = run_.name.split("_")[0]
-            location = run_.name.split("_")[1].split(".")[0]
-            name_id_dict[f"{scale}_{location}"] = run_.id
+        scale = run_.name.split("_")[0] + "_" + run_.name.split("_")[1]
+        location = run_.name.split("_")[2] + "_" + run_.name.split("_")[3]
+        name_id_dict[f"{scale}_{location}"] = run_.id
     return name_id_dict
 
 
