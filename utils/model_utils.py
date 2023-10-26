@@ -312,7 +312,7 @@ def get_model_instances(models: List, config_per_model: Dict) -> Dict:
     print("Getting model instance for linear regression...")
     lr_config = config_per_model[models[0]]
     lr_model = LinearRegressionModel(
-        lags=lr_config.n_lags,
+        lags=24,
         lags_future_covariates=[0],
         output_chunk_length=lr_config.n_ahead,
         add_encoders=lr_config.datetime_encoders,

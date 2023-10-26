@@ -95,7 +95,7 @@ if __name__ == "__main__":
         "--models_to_train",
         nargs="+",
         type=str,
-        default=["rf", "xgb"],
+        default=["xgb"],
     )
     parser.add_argument("--evaluate", type=bool, default=False)
     args = parser.parse_args()
