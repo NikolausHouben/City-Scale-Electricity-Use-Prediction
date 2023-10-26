@@ -2,14 +2,14 @@
 import wandb
 import pandas as pd
 import argparse
-from typing import List, Dict
+from typing import Dict
 import os
 import sys
 import json
 
 import wandb
 
-from evaluation import evaluate, get_run_results
+from evaluation import evaluate
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.pipeline import (
@@ -26,6 +26,7 @@ from utils.model_utils import (
     log_models_to_wandb,
 )
 
+from utils.eval_utils import get_run_results
 from utils.paths import ROOT_DIR, EXPERIMENT_WANDB, TUNING_WANDB
 
 

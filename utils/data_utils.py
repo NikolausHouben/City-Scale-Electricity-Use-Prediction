@@ -169,22 +169,20 @@ def get_longest_subseries_idx(ts_list):
     return longest_subseries_idx
 
 
-def get_nahead_historics(historics, n_ahead):
+def shorten_historics_to_n_ahead(historics, n_ahead):
     """
     For a n_ahead (forecasting horizon) of e.g., 4 this function returns the first, fifth, ninth, etc. element of a list of time series and shortens each to the horizon.
     """
-    ts_list_shortened_skipped = [ts[:n_ahead].pd_dataframe() for ts in historics][
-        ::n_ahead
-    ]
+    ts_list_shortened_skipped = [ts[:n_ahead] for ts in historics]
 
     return ts_list_shortened_skipped
 
 
-def ts_list_concat(ts_list):
+def ts_list_concat(ts_list, n_ahead):
     """
     This function concatenates a list of time series into one time series.
     """
-    df_forecast = pd.concat(ts_list, axis=0)
+    df_forecast = pd.concat([ts.pd_dataframe() for ts in ts_list][::n_ahead], axis=0)
     ts = TimeSeries.from_dataframe(df_forecast)
 
     return ts

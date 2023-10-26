@@ -3,14 +3,13 @@ import os
 import sys
 import pickle
 
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from utils.data_utils import get_longest_subseries_idx, create_directory
 from utils.model_utils import Config, load_data
 from utils.pipeline import data_pipeline, derive_config_params
 from utils.paths import EVAL_DIR
 from utils.eval_utils import backtesting, extract_forecasts_per_horizon
-
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def evaluate(init_config: Dict, models_dict: Dict):

@@ -21,51 +21,36 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.data_utils import (
     infer_frequency,
-    get_run_name_id_dict,
-    get_file_names,
-    get_latest_plotly_plots,
-    download_plotly_plots,
-    side_by_side_df,
-    select_horizon,
     create_directory,
 )
 import numpy as np
 import wandb
 
-from utils.paths import ROOT_DIR, SYNTHESIS_WANDB, EXPERIMENT_WANDB
+from utils.paths import ROOT_DIR
 
 from utils.model_utils import Config
 
 
-def run_opt(
-    load_forecast,
-    prices,
-    bss_energy,
-    bss_duration,
-    bss_eff,
-    bss_size,
-    monthly_peak,
-    tier_load_magnitude,
-    tier2_multiplier,
-    peak_cost,
-):
+def run_opt(load_forecast, prices, bss_energy, peak, config):
     ################################
     # MPC optimization model
     ################################
     m = ConcreteModel()
     m.T = Set(initialize=list(range(len(load_forecast))))
 
-    # Params
+    # MPC Params
     m.energy_prices = Param(m.T, initialize=prices)
     m.demand = Param(m.T, initialize=load_forecast)
-    m.bss_size = Param(initialize=bss_size)
-    m.bss_eff = Param(initialize=bss_eff)
     m.bss_energy_start = Param(initialize=bss_energy)
-    m.bss_max_pow = Param(initialize=bss_size / bss_duration)
-    m.monthly_peak = Param(initialize=monthly_peak)
-    m.tier_load_magnitude = Param(initialize=tier_load_magnitude)
-    m.tier2_multiplier = Param(initialize=tier2_multiplier)
-    m.peak_cost = Param(initialize=peak_cost)
+    m.monthly_peak = Param(initialize=peak)
+
+    # Config Params
+    m.bss_size = Param(initialize=config.bss_size)
+    m.bss_eff = Param(initialize=config.bss_eff)
+    m.bss_max_pow = Param(initialize=config.bss_size / config.bss_duration)
+    m.tier_load_magnitude = Param(initialize=config.tier_load_magnitude)
+    m.tier2_multiplier = Param(initialize=config.tier2_multiplier)
+    m.peak_cost = Param(initialize=config.peak_cost)
 
     # variables
     m.net_load = Var(m.T, domain=Reals)
@@ -167,59 +152,41 @@ def construct_fc_types(df_fc):
     return fc_types
 
 
-def run_operations(
-    hours_of_simulation,
-    fc,
-    fc_type,
-    prices,
-    horizon,
-    bat_size_kwh,
-    bat_duration,
-    bss_eff,
-    initial_soc,
-    tier_load_magnitude,
-    tier2_multiplier,
-    peak_cost,
-):
+def run_operations(dfs_mpc, config):
     # function to run operations of given a forecast and system data
 
     # initializing monthly peak (it will store the historical peak)
-    peak = tier_load_magnitude  # initializing monthly peak
-
+    peak = config.tier_load_magnitude  # initializing monthly peak
     # initialize energy in the battery with the initial soc
-    energy_in_the_battery = bat_size_kwh * initial_soc
+    energy_in_the_battery = config.bat_size_kwh * config.initial_soc
 
     operations = {}
-    for t in fc.index[:hours_of_simulation]:  # TODO change to hours_of_simulation
-        # get load forecast as a list
-        load = get_forecasts(df=fc, h=t, fc_type=fc_type, horizon=horizon)
-
-        # get the energy prices as a list
-        ep = get_forecasts(df=prices, h=t, fc_type="ep", horizon=horizon)
-
+    for df_mpc in dfs_mpc:  # TODO change to hours_of_simulation
+        load_forecast = df_mpc.iloc[:, 0].values.tolist()
+        ground_truth = df_mpc.iloc[:, 1].values.tolist()
+        prices = df_mpc.iloc[:, 2].values.tolist()
         # gets a set_point for the next interval based on the MPC optimization
         # the horizon of the optimization is given by the length of the forecast
         set_point = run_opt(
-            load_forecast=load,
-            prices=ep,
+            load_forecast=load_forecast,
+            prices=prices,
             bss_energy=energy_in_the_battery,
-            bss_size=bat_size_kwh,
-            bss_duration=bat_duration,
-            monthly_peak=peak,
-            tier_load_magnitude=tier_load_magnitude,
-            tier2_multiplier=tier2_multiplier,
-            peak_cost=peak_cost,
-            bss_eff=bss_eff,
+            peak=peak,
+            config=config,
         )
 
         # implement set point in time, calculate net and tier load, this
         set_point_time = t + timedelta(hours=1)
         net_load = fc.loc[set_point_time]["Ground Truth"] + set_point["bss_p_ch"]
         tier1_load = (
-            net_load if net_load <= tier_load_magnitude else tier_load_magnitude
+            net_load
+            if net_load <= config.tier_load_magnitude
+            else config.tier_load_magnitude
         )
         tier2_load = (
-            0 if net_load <= tier_load_magnitude else net_load - tier_load_magnitude
+            0
+            if net_load <= config.tier_load_magnitude
+            else net_load - config.tier_load_magnitude
         )
 
         # implement peak condition
@@ -257,97 +224,61 @@ def scale_by_gt(df):
     return df_scaled, gt_max, gt_min
 
 
-def generate_ep_profile(df, hour_shift=1, mu=0.05, sigma=0.1):
+def generate_ep_profile(df, hour_shift=3, mu=0.0, sigma=0.3):
     """Generate electricity price profiles based on the ground truth of the load"""
 
     timesteps_per_hour = int(infer_frequency(df) // 60)
     shift_in_timesteps = hour_shift * timesteps_per_hour
     # step 1: shift the ground truth by n hours
-    ep1 = df["Ground Truth"].shift(shift_in_timesteps)
-
+    series = df.iloc[:, 0]
+    ep1 = series.shift(shift_in_timesteps)
     # step 2: add a random noise to it
-    ep2 = ep1 + np.random.normal(mu, sigma, len(ep1))
+    noise = np.random.normal(mu, sigma, len(ep1))
+    ep2 = ep1 + noise
     # step 3: smooth it
     ep3 = ep2.ewm(span=timesteps_per_hour * 6).mean().fillna(method="bfill")
     ep4 = ep3.to_frame("ep")
     return ep4
 
 
-def run_mpc(df_fc, config):
+def run_nle(eval_dict, config):
     ##############################################
     # input parameters
     #############################################
 
-    hours_of_simulation = 200  # hours of simulation
-    timesteps_per_hour = infer_frequency(df_fc) // 60
-    df_scaled, gt_max, gt_min = scale_by_gt(df_fc)
-
-    # battery parameters
-    initial_soc = config.initial_soc  # initial state of charge of the battery (no unit)
-    bat_size_kwh = config.bat_size_kwh  # size of the battery in kWh
-    c_rate = config.c_rate  # C-rate of the battery
-    bat_duration = (
-        bat_size_kwh / c_rate
-    )  # battery duration (Max_kW = bat_size/duration)
-    bat_efficiency = (
-        config.bat_efficiency
-    )  # charging and discharging efficiency of the battery
-    tier2_cost_multiplier = (
-        config.tier_cost_multiplier
-    )  # cost multiplication of the tier 2 load
-    cost_of_peak = config.cost_of_peak  # cost of the monthly peak
-
-    # electricity price parameters
-    tier_limit = (
-        df_scaled["Ground Truth"].quantile(0.95)
-        if not config.tier_limit
-        else config.tier_limit
+    ts_list_per_model = eval_dict[config.horizon][config.season][
+        0
+    ]  # idx=0: ts_list (see eval_utils.py)
+    models = (
+        config.evaluate_models
+        if config.evaluate_models
+        else list(ts_list_per_model.keys())
     )
 
-    # preparing the electricity price profile
+    gt = eval_dict[config.horizon][config.season][
+        2
+    ].pd_dataframe()  # idx=2: groundtruth (see eval_utils.py)
+    gt.columns = [gt.columns[0] + "_Ground_Truth"]
+    gt_max = gt.max().values[0]  # for scaling the predictions
+    gt_min = gt.min().values[0]
+
     ep = generate_ep_profile(
-        df=df_scaled,
-        hour_shift=config.energy_price_shift_in_hours,
-        mu=config.energy_price_noise_mu,
-        sigma=config.energy_price_noise_sigma,
+        gt,
+        config.energy_price_shift_in_hours,
+        config.energy_price_noise_mu,
+        config.energy_price_noise_sigma,
     )
-    # getting the forecast types and their horizons
-    fc_types = construct_fc_types(df_fc=df_scaled)
 
-    ##############################################
-    # simulation starts here
-    ##############################################
-    results = pd.DataFrame()
-    for fc_type, horizon in fc_types.items():
-        print(f"running {fc_type}")
+    # simulation (mpc) starts here
+    for model in models:
+        dfs_mpc = [
+            ((ts_forecast.pd_dataframe().join(gt, how="left").join(ep)) - gt_min)
+            / (gt_max - gt_min)
+            for ts_forecast in ts_list_per_model[model]
+        ]
+        df_operations = run_operations(dfs_mpc, config)
 
-        fc_result = run_operations(
-            hours_of_simulation=hours_of_simulation,
-            fc=df_scaled,  # forecast table
-            fc_type=fc_type,  # label of forecast type
-            prices=ep,  # electricity prices
-            horizon=horizon,
-            bat_size_kwh=bat_size_kwh,
-            bat_duration=bat_duration,
-            initial_soc=initial_soc,
-            bss_eff=bat_efficiency,
-            tier_load_magnitude=tier_limit,
-            tier2_multiplier=tier2_cost_multiplier,
-            peak_cost=cost_of_peak,
-        )
-
-        # add the forecast label to the forecast operation results
-        for k in fc_result:
-            fc_result[k + f"_{fc_type}"] = fc_result[k]  # type: ignore
-            fc_result = fc_result.drop(k, axis=1)
-
-        # build the operation results table
-        if results.shape[0] == 0:
-            results = pd.concat([results, fc_result])
-        else:
-            results = results.join(fc_result)
-
-    # calculate operation costs of each forecast
+    # ex-post cost calculation
     cost_results = {}
     results = results.join(df_scaled[["Ground Truth"]]).join(ep)
     for fc_type in fc_types.keys():
@@ -376,6 +307,9 @@ def run_mpc(df_fc, config):
     return cost_results, results
 
 
+import pickle
+
+
 def main():
     parser = argparse.ArgumentParser(description="Run MPC")
     parser.add_argument(
@@ -384,38 +318,28 @@ def main():
     parser.add_argument("--location", type=str, help="Location", default="Los_Angeles")
     parser.add_argument("--season", type=str, help="Winter or Summer", default="Summer")
     parser.add_argument("--horizon", type=int, help="MPC horizon", default=24)
+    parser.add_argument("--models", type=list, default=None)
     args = parser.parse_args()
     MPC_RESULTS_DIR = os.path.join(
         ROOT_DIR, "data", "results", "mpc_results", args.spatial_scale, args.location
     )
     create_directory(MPC_RESULTS_DIR)
 
-    # Initialize your project
-
-    # project_name = SYNTHESIS_WANDB
-    # run = wandb.init(
-    #     project=project_name,
-    #     name="mpc_runs",
-    #     id="mpc_runs",
-    #     resume=True,
-    # )
-
-    api = wandb.Api()
-    runs = api.runs(EXPERIMENT_WANDB)
-    name_id_dict = get_run_name_id_dict(runs)
-    files = get_file_names(
-        EXPERIMENT_WANDB, name_id_dict, args.spatial_scale, args.location, args.season
-    )
-    side_by_side_plots_dict = download_plotly_plots(get_latest_plotly_plots(files))
-    df_all = side_by_side_df(side_by_side_plots_dict)
-    df_fc = select_horizon(df_all, args.horizon)
-
     with open(os.path.join(ROOT_DIR, "mpc_config.json"), "r") as f:
         mpc_config = json.load(f)
 
-    config = Config().from_dict(mpc_config)
+    with open(f"data/evaluations/{args.spatial_scale}/{args.location}.pkl", "rb") as f:
+        eval_dict = pickle.load(f)
 
-    cost_results, results = run_mpc(df_fc, config)
+    # grabbing config, and adding arguments to it for later use
+    config = Config().from_dict(mpc_config)
+    config.location = args.location
+    config.spatial_scale = args.spatial_scale
+    config.season = args.season
+    config.horizon = args.horizon
+    config.evaluate_models = args.models
+
+    cost_results, results = run_nle(eval_dict, config)
 
     cost_results.to_csv(os.path.join(MPC_RESULTS_DIR, "cost_results.csv"))
     results.to_csv(os.path.join(MPC_RESULTS_DIR, "operational_results.csv"))

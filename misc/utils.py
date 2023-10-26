@@ -319,3 +319,23 @@ def get_holidays(years, shortcut):
     df_holidays_dummies = df_holidays_dummies.sort_index()
 
     return df_holidays_dummies
+
+
+def calc_metrics(df_compare, metrics):
+    "calculates metrics for a dataframe with a ground truth column and predictions, ground truth column must be the first column"
+    metric_series_list = {}
+    for metric in metrics:
+        metric_name = metric.__name__
+        metric_result = df_compare.apply(
+            lambda x: metric(x, df_compare.iloc[:, 0]), axis=0
+        )
+        if metric.__name__ == "mean_squared_error":
+            metric_result = np.sqrt(metric_result)
+            metric_name = "root_mean_squared_error"
+        elif metric.__name__ == "r2_score":
+            metric_result = 1 - metric_result
+
+        metric_series_list[metric_name] = metric_result
+
+    df_metrics = pd.DataFrame(metric_series_list).iloc[1:, :]
+    return df_metrics

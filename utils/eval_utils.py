@@ -18,18 +18,16 @@ from darts.metrics.metrics import (
 )
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils.data_utils import (
+from .data_utils import (
     make_index_same,
     get_df_diffs,
     get_df_compares_list,
     ts_list_concat,
-    get_nahead_historics,
+    shorten_historics_to_n_ahead,
 )
 
-from utils.pipeline import Config, derive_config_params
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils.paths import CLEAN_DATA_DIR
+from .pipeline import Config, derive_config_params
+from .paths import CLEAN_DATA_DIR
 
 logger = get_logger(__name__)
 
@@ -192,26 +190,6 @@ def get_error_metric_table(metrics, ts_predictions_per_model, trg_test_inversed)
     return df_metrics
 
 
-def calc_metrics(df_compare, metrics):
-    "calculates metrics for a dataframe with a ground truth column and predictions, ground truth column must be the first column"
-    metric_series_list = {}
-    for metric in metrics:
-        metric_name = metric.__name__
-        metric_result = df_compare.apply(
-            lambda x: metric(x, df_compare.iloc[:, 0]), axis=0
-        )
-        if metric.__name__ == "mean_squared_error":
-            metric_result = np.sqrt(metric_result)
-            metric_name = "root_mean_squared_error"
-        elif metric.__name__ == "r2_score":
-            metric_result = 1 - metric_result
-
-        metric_series_list[metric_name] = metric_result
-
-    df_metrics = pd.DataFrame(metric_series_list).iloc[1:, :]
-    return df_metrics
-
-
 def predict_testset(model, ts, ts_covs, n_lags, n_ahead, eval_stride, pipeline):
     """
     This function predicts the test set using a model and returns the predictions as a dataframe. Used in hyperparameter tuning.
@@ -233,9 +211,9 @@ def predict_testset(model, ts, ts_covs, n_lags, n_ahead, eval_stride, pipeline):
     historics_gt = [ts.slice_intersect(historic) for historic in historics]
     score = np.array(rmse(historics_gt, historics)).mean()
 
-    n_ahead_historics = get_nahead_historics(historics, eval_stride)
+    n_ahead_historics = shorten_historics_to_n_ahead(historics, eval_stride)
     ts_predictions = ts_list_concat(
-        n_ahead_historics
+        n_ahead_historics, eval_stride
     )  # concatenating the batches into a single time series for plot 1, this keeps the n_ahead
     ts_predictions_inverse = pipeline.inverse_transform(
         ts_predictions
@@ -297,8 +275,8 @@ def extract_forecasts_per_horizon(config, dict_result_season):
             ts_predictions_per_model = {}
             historics_per_model_update = {}
             for model_name, historics in historics_per_model.items():
-                n_ahead_historics = get_nahead_historics(historics, n_ahead)
-                ts_predictions = ts_list_concat(n_ahead_historics)
+                n_ahead_historics = shorten_historics_to_n_ahead(historics, n_ahead)
+                ts_predictions = ts_list_concat(n_ahead_historics, n_ahead)
                 ts_predictions_per_model[model_name] = ts_predictions
                 historics_per_model_update[model_name] = n_ahead_historics
 
