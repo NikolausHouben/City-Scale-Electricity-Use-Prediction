@@ -20,10 +20,10 @@ from darts.metrics.metrics import (
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.data_utils import (
     make_index_same,
-    ts_list_concat_new,
     get_df_diffs,
     get_df_compares_list,
     ts_list_concat,
+    get_nahead_historics,
 )
 
 from utils.pipeline import Config, derive_config_params
@@ -233,8 +233,9 @@ def predict_testset(model, ts, ts_covs, n_lags, n_ahead, eval_stride, pipeline):
     historics_gt = [ts.slice_intersect(historic) for historic in historics]
     score = np.array(rmse(historics_gt, historics)).mean()
 
+    n_ahead_historics = get_nahead_historics(historics, eval_stride)
     ts_predictions = ts_list_concat(
-        historics, eval_stride
+        n_ahead_historics
     )  # concatenating the batches into a single time series for plot 1, this keeps the n_ahead
     ts_predictions_inverse = pipeline.inverse_transform(
         ts_predictions
@@ -296,9 +297,10 @@ def extract_forecasts_per_horizon(config, dict_result_season):
             ts_predictions_per_model = {}
             historics_per_model_update = {}
             for model_name, historics in historics_per_model.items():
-                ts_predictions = ts_list_concat_new(historics, n_ahead)
+                n_ahead_historics = get_nahead_historics(historics, n_ahead)
+                ts_predictions = ts_list_concat(n_ahead_historics)
                 ts_predictions_per_model[model_name] = ts_predictions
-                historics_per_model_update[model_name] = historics
+                historics_per_model_update[model_name] = n_ahead_historics
 
             ts_predictions_per_model["48-Hour Persistence"] = gt.shift(
                 config.timesteps_per_hour * 48

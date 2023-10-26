@@ -10,13 +10,12 @@ import pandas as pd
 import numpy as np
 import json
 from sklearn.preprocessing import MinMaxScaler
+from darts import TimeSeries
 import requests
 from timezonefinder import TimezoneFinder
-import time
 from darts.utils.missing_values import fill_missing_values
 import h5py
 import wandb
-import plotly.express as px
 import plotly.graph_objects as go
 
 
@@ -170,34 +169,24 @@ def get_longest_subseries_idx(ts_list):
     return longest_subseries_idx
 
 
-def ts_list_concat_new(ts_list, n_ahead):
+def get_nahead_historics(historics, n_ahead):
+    """
+    For a n_ahead (forecasting horizon) of e.g., 4 this function returns the first, fifth, ninth, etc. element of a list of time series and shortens each to the horizon.
+    """
+    ts_list_shortened_skipped = [ts[:n_ahead].pd_dataframe() for ts in historics][
+        ::n_ahead
+    ]
+
+    return ts_list_shortened_skipped
+
+
+def ts_list_concat(ts_list):
     """
     This function concatenates a list of time series into one time series.
-    The result is a time series that concatenates the subseries so that n_ahead is preserved.
-
     """
-    ts = ts_list[0][:n_ahead]
-    for i in range(n_ahead, len(ts_list) - n_ahead, n_ahead):
-        ts_1 = ts_list[i][ts.end_time() :]
-        timestamp_one_before = ts_1.start_time() - ts.freq
-        ts = ts[:timestamp_one_before].append(ts_1[:n_ahead])
-    return ts
+    df_forecast = pd.concat(ts_list, axis=0)
+    ts = TimeSeries.from_dataframe(df_forecast)
 
-
-def ts_list_concat(ts_list, eval_stride):
-    """
-    This function concatenates a list of time series into one time series.
-    The result is a time series that concatenates the subseries so that n_ahead is preserved.
-
-    """
-    ts = ts_list[0]
-    n_ahead = len(ts)
-    skip = n_ahead // eval_stride
-    for i in range(skip, len(ts_list) - skip, skip):
-        print(ts.end_time(), ts_list[i].start_time())
-        ts_1 = ts_list[i][ts.end_time() :]
-        timestamp_one_before = ts_1.start_time() - ts.freq
-        ts = ts[:timestamp_one_before].append(ts_1)
     return ts
 
 
