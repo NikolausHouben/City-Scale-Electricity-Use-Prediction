@@ -95,7 +95,9 @@ if __name__ == "__main__":
         "--models_to_train",
         nargs="+",
         type=str,
-        default=["xgb"],
+        default=[
+            "rf",
+        ],  # "xgb", "lgbm", "gru", "nbeats", "tft"], #TODO Test if LinearRegression works for "REDO runs"
     )
     parser.add_argument("--evaluate", type=bool, default=False)
     args = parser.parse_args()

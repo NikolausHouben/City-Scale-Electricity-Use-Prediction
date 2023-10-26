@@ -1,11 +1,11 @@
 {
     "bat_size_kwh": 2,
     "bat_efficiency": 0.95,
-    "initial_soc": 0.5,
-    "c_rate": 0.5,
+    "bat_initial_soc": 0.5,
+    "bat_max_power": 1,
     "tier_cost_multiplier": 1.5,
-    "tier_limit": null,
-    "cost_of_peak": 0.5,
+    "tier_load_magnitude": 0.6,
+    "peak_cost": 0.5,
     "energy_price_shift_in_hours": 4,
     "energy_price_noise_mu": 0.1,
     "energy_price_noise_sigma": 0.02
