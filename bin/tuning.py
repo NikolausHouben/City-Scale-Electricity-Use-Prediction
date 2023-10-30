@@ -19,7 +19,7 @@ from utils.data_utils import get_longest_subseries_idx
 
 from utils.model_utils import get_model, train_models
 
-from evaluation import predict_testset
+from utils.eval_utils import predict_testset
 
 
 def train_eval_tuning():

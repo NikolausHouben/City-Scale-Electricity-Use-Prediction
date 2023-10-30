@@ -244,7 +244,7 @@ def run_nle(eval_dict, config):
     # input parameters
     #############################################
 
-    print(f"Running NLE for Horizon:{config.horizon } and Season:{config.season}")
+    print(f"Running NLE for Horizon:{config.horizon} and Season:{config.season}")
 
     ts_list_per_model = eval_dict[config.horizon][config.season][
         0
