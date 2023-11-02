@@ -21,5 +21,14 @@
     "eval_seasons": [
         "Summer",
         "Winter"
-    ]
+    ],
+    "metrics": [
+        "rmse",
+        "mae",
+        "smape",
+        "mape",
+        "max_peak_error",
+        "mean_n_peak_error"
+    ],
+    "hours_persistence": 48
 }

@@ -94,100 +94,39 @@ def max_peak_error(
     return np.abs(y1_max - y2_max)
 
 
-@multi_ts_support
-@multivariate_support
-def mean_n_peak_error(
-    actual_series: Union[TimeSeries, Sequence[TimeSeries]],
-    pred_series: Union[TimeSeries, Sequence[TimeSeries]],
-    intersect: bool = True,
-    *,
-    reduction: Callable[[np.ndarray], float] = np.mean,  # type: ignore
-    inter_reduction: Callable[[np.ndarray], Union[float, np.ndarray]] = lambda x: x,
-    n_jobs: int = 1,
-    verbose: bool = False,
-    n: int = 5,
-) -> Union[float, np.ndarray]:
-    """Mean N Peak Error.
-
-    For two time series :math:`y^1` and :math:`y^2` of length :math:`T`, it is computed as
-
-    .. math::
-
-    If any of the series is stochastic (containing several samples), the median sample value is considered.
-
-    Parameters
-    ----------
-    actual_series
-        The (sequence of) actual series.
-    pred_series
-        The (sequence of) predicted series.
-    intersect
-        For time series that are overlapping in time without having the same time index, setting `True`
-        will consider the values only over their common time interval (intersection in time).
-    reduction
-        Function taking as input a ``np.ndarray`` and returning a scalar value. This function is used to aggregate
-        the metrics of different components in case of multivariate ``TimeSeries`` instances.
-    inter_reduction
-        Function taking as input a ``np.ndarray`` and returning either a scalar value or a ``np.ndarray``.
-        This function can be used to aggregate the metrics of different series in case the metric is evaluated on a
-        ``Sequence[TimeSeries]``. Defaults to the identity function, which returns the pairwise metrics for each pair
-        of ``TimeSeries`` received in input. Example: ``inter_reduction=np.mean``, will return the average of the
-        pairwise metrics.
-    n_jobs
-        The number of jobs to run in parallel. Parallel jobs are created only when a ``Sequence[TimeSeries]`` is
-        passed as input, parallelising operations regarding different ``TimeSeries``. Defaults to `1`
-        (sequential). Setting the parameter to `-1` means using all the available processors.
-    verbose
-        Optionally, whether to print operations progress
-
-    Returns
-    -------
-    float
-        The mean peak error for the top n peaks
-    """
-
-    y1, y2 = _get_values_or_raise(
-        actual_series, pred_series, intersect, remove_nan_union=True  # type: ignore
-    )
-
-    y1_sorted_indices = np.argsort(
-        y1
-    )  # Get indices that would sort array y1 in ascending order
-    y1_top5_indices = y1_sorted_indices[
-        -n:
-    ]  # Get the indices of the top 5 highest values in y1
-
-    y1_top5_max = np.max(
-        y1[y1_top5_indices]
-    )  # Get the maximum value among the top 5 values in y1
-    y2_top5_max = np.max(y2[y1_top5_indices])  # Get the corresponding value in y2
-    mean_difference = np.mean(np.abs(y1_top5_max - y2_top5_max))
-
-    return mean_difference
+metrics_dict = {
+    "rmse": rmse,
+    "mape": mape,
+    "mae": mae,
+    "r2_score": r2_score,
+    "smape": smape,
+    "max_peak_error": max_peak_error,
+    "mean_n_peak_error": max_peak_error,
+}
 
 
-def calc_error_scores(metrics, ts_predictions_inverse, trg_inversed):
-    metrics_scores = {}
-    for metric in metrics:
-        score = metric(ts_predictions_inverse, trg_inversed)
-        metrics_scores[metric.__name__] = score
-    return metrics_scores
+# def calc_error_scores(metrics, ts_predictions_inverse, trg_inversed):
+#     metrics_scores = {}
+#     for metric in metrics:
+#         score = metric(ts_predictions_inverse, trg_inversed)
+#         metrics_scores[metric.__name__] = score
+#     return metrics_scores
 
 
-def get_error_metric_table(metrics, ts_predictions_per_model, trg_test_inversed):
-    error_metric_table = {}
-    for model_name, ts_predictions_inverse in ts_predictions_per_model.items():
-        ts_predictions_inverse, trg_inversed = make_index_same(
-            ts_predictions_inverse, trg_test_inversed
-        )
-        metrics_scores = calc_error_scores(
-            metrics, ts_predictions_inverse, trg_inversed
-        )
-        error_metric_table[model_name] = metrics_scores
+# def get_error_metric_table(metrics, ts_predictions_per_model, trg_test_inversed):
+#     error_metric_table = {}
+#     for model_name, ts_predictions_inverse in ts_predictions_per_model.items():
+#         ts_predictions_inverse, trg_inversed = make_index_same(
+#             ts_predictions_inverse, trg_test_inversed
+#         )
+#         metrics_scores = calc_error_scores(
+#             metrics, ts_predictions_inverse, trg_inversed
+#         )
+#         error_metric_table[model_name] = metrics_scores
 
-    df_metrics = pd.DataFrame(error_metric_table).T
-    df_metrics.index.name = "model"
-    return df_metrics
+#     df_metrics = pd.DataFrame(error_metric_table).T
+#     df_metrics.index.name = "model"
+#     return df_metrics
 
 
 def predict_testset(model, ts, ts_covs, n_lags, n_ahead, eval_stride, pipeline):
@@ -310,49 +249,39 @@ def get_run_results(dict_result_n_ahead, init_config):
     return df_metrics
 
 
-def error_metrics_table(dict_result_n_ahead, config):
-    print("Calculating error metrics")
+# def error_metrics_table(dict_result_n_ahead, config):
+#     print("Calculating error metrics")
 
-    list_metrics = [
-        rmse,
-        r2_score,
-        mae,
-        smape,
-        mape,
-        max_peak_error,
-        mean_n_peak_error,
-    ]  # evaluation metrics
+#     metrics_tables = []
 
-    metrics_tables = []
+#     model_names = list(dict_result_n_ahead[1]["Summer"][1].keys())
 
-    model_names = list(dict_result_n_ahead[1]["Summer"][1].keys())
+#     for n_ahead, dict_result_season in dict_result_n_ahead.items():
+#         for season, (_, preds_per_model, gt) in dict_result_season.items():
+#             df_metrics = get_error_metric_table(list_metrics, preds_per_model, gt)
+#             rmse_persistence = df_metrics.iloc[[-1], :]["rmse"].values[
+#                 0
+#             ]  # the last row is the X-hour persistence model specified in the training
+#             df_metrics.drop(labels=model_names[-1], axis=0, inplace=True)
+#             df_metrics.reset_index(inplace=True)
+#             df_metrics["season"] = season
+#             df_metrics.set_index("season", inplace=True)
+#             df_metrics.reset_index(inplace=True)
+#             df_metrics["horizon_in_hours"] = n_ahead // config.timesteps_per_hour
+#             df_metrics.set_index("horizon_in_hours", inplace=True)
+#             df_metrics.reset_index(inplace=True)
+#             df_metrics["rmse_skill_score"] = 1 - df_metrics["rmse"] / rmse_persistence
+#             metrics_tables.append(df_metrics)
 
-    for n_ahead, dict_result_season in dict_result_n_ahead.items():
-        for season, (_, preds_per_model, gt) in dict_result_season.items():
-            df_metrics = get_error_metric_table(list_metrics, preds_per_model, gt)
-            rmse_persistence = df_metrics.iloc[[-1], :]["rmse"].values[
-                0
-            ]  # the last row is the X-hour persistence model specified in the training
-            df_metrics.drop(labels=model_names[-1], axis=0, inplace=True)
-            df_metrics.reset_index(inplace=True)
-            df_metrics["season"] = season
-            df_metrics.set_index("season", inplace=True)
-            df_metrics.reset_index(inplace=True)
-            df_metrics["horizon_in_hours"] = n_ahead // config.timesteps_per_hour
-            df_metrics.set_index("horizon_in_hours", inplace=True)
-            df_metrics.reset_index(inplace=True)
-            df_metrics["rmse_skill_score"] = 1 - df_metrics["rmse"] / rmse_persistence
-            metrics_tables.append(df_metrics)
+#     df_metrics = pd.concat(metrics_tables, axis=0, ignore_index=True).sort_values(
+#         by=["season", "horizon_in_hours"]
+#     )
+#     try:
+#         wandb.log({f"Error metrics": wandb.Table(dataframe=df_metrics)})
+#     except:
+#         print("Wandb is not initialized, skipping logging")
 
-    df_metrics = pd.concat(metrics_tables, axis=0, ignore_index=True).sort_values(
-        by=["season", "horizon_in_hours"]
-    )
-    try:
-        wandb.log({f"Error metrics": wandb.Table(dataframe=df_metrics)})
-    except:
-        print("Wandb is not initialized, skipping logging")
-
-    return df_metrics
+#     return df_metrics
 
 
 def side_by_side(dict_result_n_ahead, config):
