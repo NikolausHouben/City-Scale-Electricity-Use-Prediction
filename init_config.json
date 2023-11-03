@@ -3,7 +3,7 @@
     "spatial_scale": "PLACEHOLDER_SCALE",
     "temp_resolution": 60,
     "location": "PLACEHOLDER_LOCATION",
-    "unit": "MWh",
+    "unit": "PLACEHOLDER_UNIT",
     "models_to_train": "PLACEHOLDER_MODELS_TO_TRAIN",
     "horizon_in_hours": 48,
     "lookback_in_hours": 24,
@@ -25,10 +25,12 @@
     "metrics": [
         "rmse",
         "mae",
+        "r2_score",
         "smape",
         "mape",
         "max_peak_error",
-        "mean_n_peak_error"
+        "mean_n_peak_error",
+        "nle"
     ],
     "hours_persistence": 48
 }

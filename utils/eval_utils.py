@@ -1,4 +1,7 @@
 # eval_utils.py
+
+"""Some utility functions for evaluation."""
+
 import sys
 import os
 from typing import Callable, Optional, Sequence, Tuple, Union, List, Dict
@@ -105,28 +108,89 @@ metrics_dict = {
 }
 
 
-# def calc_error_scores(metrics, ts_predictions_inverse, trg_inversed):
-#     metrics_scores = {}
-#     for metric in metrics:
-#         score = metric(ts_predictions_inverse, trg_inversed)
-#         metrics_scores[metric.__name__] = score
-#     return metrics_scores
+def error_metrics_table(config, eval_dict):
+    """
+    Main function to go from the evaluation dictionary to the error metrics table. It loops over all the horizons, seasons and models and calculates the error metrics for each model.
+
+    The used error metrics are defined in the config file, as strings whereas the error functions are defined in the darts.metrics.metrics module.
+
+    The error metrics are calculated using the calc_error_scores function.
+
+    After looping through a test dataset (season = [Summer, Winter]) the errors of the persistence model are calculated and added to the dataframe.
+
+    This is a benchmark model that is used to compare the performance of the other models by means of a RMSE skill score.
+
+    Lastly, the persistence model is removed from the dataframe, and it is returned.
+
+    """
+    metrics_list = [metrics_dict[metric] for metric in config.metrics]
+    keys = ["horizon", "season", "model"]
+    df_metrics = pd.DataFrame(columns=keys + config.metrics)
+    for horizon in eval_dict.keys():
+        for season in eval_dict[horizon].keys():
+            gt = eval_dict[horizon][season][2]
+            persistence = eval_dict[horizon][season][1][
+                f"{config.hours_persistence}-Hour Persistence"
+            ]
+            perf_dict_persistence = calc_error_scores(metrics_list, persistence, gt)
+            df_persistence = pd.DataFrame.from_dict(
+                perf_dict_persistence, orient="index"
+            ).T
+            df_persistence["horizon"] = 0
+            df_persistence["season"] = season
+            df_persistence["model"] = f"{config.hours_persistence}-Hour Persistence"
+            df_metrics = pd.concat([df_metrics, df_persistence], axis=0)
+
+            for model in eval_dict[horizon][season][0].keys():
+                df_metrics_model = pd.DataFrame(columns=keys + config.metrics)
+
+                for pred_batch in eval_dict[horizon][season][0][model]:
+                    pred, gt_sliced = make_index_same(pred_batch, gt)
+
+                    perf_dict = calc_error_scores(metrics_list, pred, gt_sliced)
+
+                    df_perf = pd.DataFrame.from_dict(perf_dict, orient="index").T
+
+                    df_metrics_model = pd.concat([df_metrics_model, df_perf], axis=0)
+
+                    # special treatment for max_peak_error and mean_n_peak_error
+                    if "max_peak_error" in df_metrics_model.columns:
+                        df_metrics_model["max_peak_error"] = df_metrics_model[
+                            "max_peak_error"
+                        ].max()
+                    if "mean_n_peak_error" in df_metrics_model.columns:
+                        df_metrics_model["mean_n_peak_error"] = (
+                            df_metrics_model["mean_n_peak_error"]
+                            .sort_values(ascending=False)[::horizon][:5]
+                            .mean()
+                        )
+
+                df_summary = df_metrics_model.mean().to_frame().T
+                # add keys
+                df_summary["horizon"] = horizon
+                df_summary["season"] = season
+                df_summary["model"] = model
+                # add to df_metrics
+                df_metrics = pd.concat([df_metrics, df_summary], axis=0)
+            rmse_persistence = df_metrics[
+                df_metrics["model"] == f"{config.hours_persistence}-Hour Persistence"
+            ]["rmse"]
+            df_metrics["rmse_skill"] = (
+                1 - df_metrics["rmse"] / rmse_persistence.values[0]
+            )
+            df_metrics = df_metrics[
+                ~(df_metrics["model"] == f"{config.hours_persistence}-Hour Persistence")
+            ]
+
+    return df_metrics
 
 
-# def get_error_metric_table(metrics, ts_predictions_per_model, trg_test_inversed):
-#     error_metric_table = {}
-#     for model_name, ts_predictions_inverse in ts_predictions_per_model.items():
-#         ts_predictions_inverse, trg_inversed = make_index_same(
-#             ts_predictions_inverse, trg_test_inversed
-#         )
-#         metrics_scores = calc_error_scores(
-#             metrics, ts_predictions_inverse, trg_inversed
-#         )
-#         error_metric_table[model_name] = metrics_scores
-
-#     df_metrics = pd.DataFrame(error_metric_table).T
-#     df_metrics.index.name = "model"
-#     return df_metrics
+def calc_error_scores(metrics, ts_predictions_inverse, trg_inversed):
+    metrics_scores = {}
+    for metric in metrics:
+        score = metric(ts_predictions_inverse, trg_inversed)
+        metrics_scores[metric.__name__] = score
+    return metrics_scores
 
 
 def predict_testset(model, ts, ts_covs, n_lags, n_ahead, eval_stride, pipeline):
@@ -232,56 +296,22 @@ def extract_forecasts_per_horizon(config, dict_result_season):
     return dict_result_n_ahead
 
 
-def get_run_results(dict_result_n_ahead, init_config):
+def get_run_results(init_config, eval_dict):
     config = Config().from_dict(init_config)
 
     config = derive_config_params(config)
 
-    df_metrics = error_metrics_table(dict_result_n_ahead, config)
-    side_by_side(dict_result_n_ahead, config)
+    df_metrics = error_metrics_table(config, eval_dict)
 
-    error_metric_trajectory(dict_result_n_ahead, config)
+    side_by_side(eval_dict, config)
 
-    error_distribution(dict_result_n_ahead, config)
+    error_metric_trajectory(eval_dict, config)
 
-    daily_sum(dict_result_n_ahead, config)
+    error_distribution(eval_dict, config)
+
+    # daily_sum(dict_result_n_ahead, config)
 
     return df_metrics
-
-
-# def error_metrics_table(dict_result_n_ahead, config):
-#     print("Calculating error metrics")
-
-#     metrics_tables = []
-
-#     model_names = list(dict_result_n_ahead[1]["Summer"][1].keys())
-
-#     for n_ahead, dict_result_season in dict_result_n_ahead.items():
-#         for season, (_, preds_per_model, gt) in dict_result_season.items():
-#             df_metrics = get_error_metric_table(list_metrics, preds_per_model, gt)
-#             rmse_persistence = df_metrics.iloc[[-1], :]["rmse"].values[
-#                 0
-#             ]  # the last row is the X-hour persistence model specified in the training
-#             df_metrics.drop(labels=model_names[-1], axis=0, inplace=True)
-#             df_metrics.reset_index(inplace=True)
-#             df_metrics["season"] = season
-#             df_metrics.set_index("season", inplace=True)
-#             df_metrics.reset_index(inplace=True)
-#             df_metrics["horizon_in_hours"] = n_ahead // config.timesteps_per_hour
-#             df_metrics.set_index("horizon_in_hours", inplace=True)
-#             df_metrics.reset_index(inplace=True)
-#             df_metrics["rmse_skill_score"] = 1 - df_metrics["rmse"] / rmse_persistence
-#             metrics_tables.append(df_metrics)
-
-#     df_metrics = pd.concat(metrics_tables, axis=0, ignore_index=True).sort_values(
-#         by=["season", "horizon_in_hours"]
-#     )
-#     try:
-#         wandb.log({f"Error metrics": wandb.Table(dataframe=df_metrics)})
-#     except:
-#         print("Wandb is not initialized, skipping logging")
-
-#     return df_metrics
 
 
 def side_by_side(dict_result_n_ahead, config):

@@ -6,6 +6,7 @@ from typing import Dict
 import os
 import sys
 import json
+import pickle
 
 import wandb
 
@@ -27,7 +28,7 @@ from utils.model_utils import (
 )
 
 from utils.eval_utils import get_run_results
-from utils.paths import ROOT_DIR, EXPERIMENT_WANDB, TUNING_WANDB
+from utils.paths import ROOT_DIR, EXPERIMENT_WANDB, TUNING_WANDB, EVAL_DIR
 
 
 def training(init_config: Dict):
@@ -83,14 +84,14 @@ def training(init_config: Dict):
     models_dict = {model.__class__.__name__: model for model in trained_models}
     wandb.config.update(config.data)
 
-    return init_config, models_dict
+    return models_dict
 
 
 if __name__ == "__main__":
     # argparse scale and location
     parser = argparse.ArgumentParser()
-    parser.add_argument("--scale", type=str)
-    parser.add_argument("--location", type=str)
+    parser.add_argument("--scale", type=str, default="1_county")
+    parser.add_argument("--location", type=str, default="New_York")
     parser.add_argument(
         "--models_to_train",
         nargs="+",
@@ -99,7 +100,10 @@ if __name__ == "__main__":
             "rf",
         ],  # "xgb", "lgbm", "gru", "nbeats", "tft"], #TODO Test if LinearRegression works for "REDO runs"
     )
+    parser.add_argument("--train", type=bool, default=False)
     parser.add_argument("--evaluate", type=bool, default=False)
+    parser.add_argument("--results", type=bool, default=True)
+
     args = parser.parse_args()
 
     with open(os.path.join(ROOT_DIR, "init_config.json"), "r") as fp:
@@ -124,13 +128,37 @@ if __name__ == "__main__":
         + "aux_data--"
         + str(init_config["use_auxiliary_data"])
     )
+
+    # os.environ["WANDB_MODE"] = "dryrun"
     wandb.init(
         project=EXPERIMENT_WANDB, name=name_id, id=name_id
     )  # set id to continue existing runs
-    config, models_dict = training(init_config)
 
-    if args.evaluate:
-        eval_dict = evaluate(config, models_dict)
-        df_metrics = get_run_results(eval_dict, config)
+    if args.train:
+        models_dict = training(init_config)
+    else:
+        models_dict = None
+
+    if args.evaluate and models_dict is not None:
+        eval_dict = evaluate(init_config, models_dict)
+    else:
+        try:
+            with open(
+                os.path.join(
+                    EVAL_DIR,
+                    init_config["spatial_scale"],
+                    f"{init_config['location']}.pkl",
+                ),
+                "rb",
+            ) as f:
+                eval_dict = pickle.load(f)
+        except:
+            raise Exception(
+                "No evaluation found, please run evaluation first or set --evaluate to True"
+            )
+
+    if args.results:
+        df_results = get_run_results(init_config, eval_dict)
+        wandb.log({"error_metrics_table": wandb.Table(dataframe=df_results)})
 
     wandb.finish()

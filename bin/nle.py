@@ -27,7 +27,7 @@ from utils.data_utils import (
 import numpy as np
 import wandb
 
-from utils.paths import ROOT_DIR
+from utils.paths import ROOT_DIR, EVAL_DIR, RESULTS_DIR
 
 from utils.model_utils import Config
 
@@ -138,6 +138,7 @@ def run_opt(load_forecast, prices, bss_energy, peak, config):
 
 
 def run_operations(dfs_mpc, config):
+    print("Running operations")
     # function to run operations of given a forecast and system data
 
     # initializing monthly peak (it will store the historical peak)
@@ -149,8 +150,6 @@ def run_operations(dfs_mpc, config):
     for t, df_mpc in enumerate(dfs_mpc[:-1]):
         load_forecast = df_mpc.iloc[:, 0].values.tolist()
         prices = df_mpc.iloc[:, 2].values.tolist()
-        # gets a set_point for the next interval based on the MPC optimization
-        # the horizon of the optimization is given by the length of the forecast
         set_point = run_opt(
             load_forecast=load_forecast,
             prices=prices,
@@ -161,7 +160,9 @@ def run_operations(dfs_mpc, config):
 
         # implement set point in time, calculate net and tier load, this
         set_point_time = t + 1  # set point is applied to the next hour
-        load_set_point_time = dfs_mpc[set_point_time].iloc[[0], [1]].values.flatten()[0]
+        load_set_point_time = (
+            dfs_mpc[set_point_time].iloc[[0], [1]].values.flatten()[0]
+        )  # get the ground truth
         net_load = load_set_point_time + set_point["bss_p_ch"]
         tier1_load = (
             net_load
@@ -179,6 +180,7 @@ def run_operations(dfs_mpc, config):
             peak = net_load
         set_point.update(
             {
+                "load": load_set_point_time,
                 "opr_net_load": net_load,
                 "opr_tier1_load": tier1_load,
                 "opr_tier2_load": tier2_load,
@@ -214,7 +216,7 @@ def generate_ep_profile(df, hour_shift=3, mu=0.0, sigma=0.3):
 def calculate_operational_costs(df_operations, config):
     # ex-post cost calculation
 
-    print("Doing.")
+    print("Calculating costs")
 
     cost_results = {}
     tier1 = (df_operations["opr_tier1_load"] * df_operations["ep"]).sum()
@@ -239,26 +241,28 @@ def calculate_operational_costs(df_operations, config):
     return cost_results
 
 
-def run_nle(eval_dict, config):
-    ##############################################
-    # input parameters
-    #############################################
+def run_nle(eval_dict, scale, location, horizon, season, model):
+    print(f"Running NLE for Horizon: {horizon} and Season: {season}")
 
-    print(f"Running NLE for Horizon:{config.horizon} and Season:{config.season}")
+    # creating directory for results
+    MPC_RESULTS_DIR = os.path.join(RESULTS_DIR, "mpc_results", scale, location)
+    create_directory(MPC_RESULTS_DIR)
 
-    ts_list_per_model = eval_dict[config.horizon][config.season][
+    # loading the nle_config
+    with open(os.path.join(ROOT_DIR, "nle_config.json"), "r") as fp:
+        nle_config = json.load(fp)
+        nle_config = Config.from_dict(nle_config)
+
+    # getting predictions for the given horizon and season
+    ts_list_per_model = eval_dict[horizon][season][
         0
     ]  # idx=0: ts_list (see eval_utils.py)
-    models = (
-        config.evaluate_models
-        if config.evaluate_models
-        else list(ts_list_per_model.keys())
-    )
 
-    gt = eval_dict[config.horizon][config.season][
+    # getting the ground truth
+    gt = eval_dict[horizon][season][
         2
     ].pd_dataframe()  # idx=2: groundtruth (see eval_utils.py)
-    gt.columns = [gt.columns[0] + "_Ground_Truth"]  # rename column to avoid confusion
+    gt.columns = ["gt_" + gt.columns[0]]  # rename column to avoid confusion
 
     # grabbing stats for scaling the predictions and ground truth -> energy prices are a function of the ground truth
     gt_max = gt.max().values[0]
@@ -267,90 +271,72 @@ def run_nle(eval_dict, config):
     # generating energy price profile
     ep = generate_ep_profile(
         gt,
-        config.energy_price_shift_in_hours,
-        config.energy_price_noise_mu,
-        config.energy_price_noise_sigma,
+        nle_config.energy_price_shift_in_hours,
+        nle_config.energy_price_noise_mu,
+        nle_config.energy_price_noise_sigma,
     )
 
-    # simulation (mpc) starts here
-    dfs_operations_per_model = {}
-    dfs_costs_per_model = {}
+    print(f"Running MPC for {model}")
 
-    for model in models:
-        print(f"Running MPC for {model}")
-
-        dfs_mpc = [
-            ((ts_forecast.pd_dataframe().join(gt, how="left").join(ep)) - gt_min)
-            / (gt_max - gt_min)
-            for ts_forecast in ts_list_per_model[model]
-        ]
-
-        df_operations = run_operations(dfs_mpc, config)
-        costs = calculate_operational_costs(df_operations, config)
-
-        # saving results to a dictionary
-        dfs_operations_per_model[model] = df_operations
-        dfs_costs_per_model[model] = costs
-
-    # calculating the operations and costs for the ground truth
-
+    # Ground truth operations and costs as baseline
     dfs_mpc_gt = [
         (
             (
                 (
                     ts_forecast.pd_dataframe()
-                    .join(
-                        gt, how="left"
-                    )  # adding gt twice so when we use .iloc[:, 1:] we get the gt, gt, ep
                     .join(gt, how="left")
+                    .join(
+                        gt.rename({gt.columns[0]: "gt_sup"}, axis=1), how="left"
+                    )  # adding gt twice so when we use .iloc[:, 1:] we get the gt, gt, ep
                     .join(ep)
                 )
                 - gt_min
             )
             / (gt_max - gt_min)
         ).iloc[:, 1:]
-        for ts_forecast in ts_list_per_model[models[-1]]
+        for ts_forecast in ts_list_per_model[model]
     ]
 
-    df_operations_gt = run_operations(dfs_mpc_gt, config)
-    costs_gt = calculate_operational_costs(df_operations_gt, config)
+    df_operations_gt = run_operations(dfs_mpc_gt, nle_config)
+    costs_gt = calculate_operational_costs(df_operations_gt, nle_config)
 
-    dfs_operations_per_model["Ground_Truth"] = df_operations_gt
-    dfs_costs_per_model["Ground_Truth"] = costs_gt
+    # Model operations and costs
+    dfs_mpc = [
+        ((ts_forecast.pd_dataframe().join(gt, how="left").join(ep)) - gt_min)
+        / (gt_max - gt_min)
+        for ts_forecast in ts_list_per_model[model]
+    ]
 
-    return dfs_operations_per_model, dfs_costs_per_model
+    # calculating the operations and costs for the ground truth
+
+    df_operations = run_operations(dfs_mpc, nle_config)
+    costs = calculate_operational_costs(df_operations, nle_config)
+    nle_score = costs["total_cost"] - costs_gt["total_cost"]
+
+    df_operations_gt.columns = ["gt_" + col for col in df_operations_gt.columns]
+    df_operations = pd.concat([df_operations, df_operations_gt], axis=1)
+    df_operations.to_csv(MPC_RESULTS_DIR + f"/{model}_operations.csv")
+
+    return nle_score
 
 
 def main():
     parser = argparse.ArgumentParser(description="Run MPC")
-    parser.add_argument(
-        "--spatial_scale", type=str, help="Spatial scale", default="1_county"
-    )
+    parser.add_argument("--scale", type=str, help="Spatial scale", default="1_county")
     parser.add_argument("--location", type=str, help="Location", default="Los_Angeles")
     parser.add_argument("--season", type=str, help="Winter or Summer", default="Summer")
     parser.add_argument("--horizon", type=int, help="MPC horizon", default=24)
-    parser.add_argument("--models", type=list, default=["RandomForest"])
+    parser.add_argument("--model", type=list, default=["RandomForest"])
     args = parser.parse_args()
-    MPC_RESULTS_DIR = os.path.join(
-        ROOT_DIR, "data", "results", "mpc_results", args.spatial_scale, args.location
-    )
-    create_directory(MPC_RESULTS_DIR)
 
-    with open(os.path.join(ROOT_DIR, "mpc_config.json"), "r") as f:
-        mpc_config = json.load(f)
-
-    with open(f"data/evaluations/{args.spatial_scale}/{args.location}.pkl", "rb") as f:
+    with open(
+        os.path.join(EVAL_DIR, f"{args.spatial_scale}/{args.location}.pkl"), "rb"
+    ) as f:
         eval_dict = pickle.load(f)
 
-    # grabbing config, and adding arguments to it for later use
-    config = Config().from_dict(mpc_config)
-    config.location = args.location
-    config.spatial_scale = args.spatial_scale
-    config.season = args.season
-    config.horizon = args.horizon
-    config.evaluate_models = args.models
-
-    cost_results, results = run_nle(eval_dict, config)
+    costs = run_nle(
+        eval_dict, args.scale, args.location, args.horizon, args.season, args.model
+    )
 
 
 if __name__ == "__main__":

@@ -82,6 +82,16 @@ def run_opt(
 
     m.energy_balance = Constraint(m.T, rule=energy_balance)
 
+    def net_load_lb(m, t):
+        return m.net_load[t] >= 0
+
+    m.net_load_lb = Constraint(m.T, rule=net_load_lb)
+
+    def net_load_ub(m, t):
+        return m.net_load[t] <= 0.4
+
+    m.net_load_ub = Constraint(m.T, rule=net_load_ub)
+
     def tier_load_definition(m, t):
         return m.net_load[t] == m.tier1_net_load[t] + m.tier2_net_load[t]
 
@@ -283,11 +293,13 @@ def run_mpc(df_fc, config):
     df_scaled, gt_max, gt_min = scale_by_gt(df_fc)
 
     # battery parameters
-    initial_soc = config.initial_soc  # initial state of charge of the battery (no unit)
+    initial_soc = (
+        config.bat_initial_soc
+    )  # initial state of charge of the battery (no unit)
     bat_size_kwh = config.bat_size_kwh  # size of the battery in kWh
     c_rate = config.c_rate  # C-rate of the battery
     bat_duration = (
-        bat_size_kwh / c_rate
+        bat_size_kwh / config.c_rate
     )  # battery duration (Max_kW = bat_size/duration)
     bat_efficiency = (
         config.bat_efficiency
@@ -295,14 +307,7 @@ def run_mpc(df_fc, config):
     tier2_cost_multiplier = (
         config.tier_cost_multiplier
     )  # cost multiplication of the tier 2 load
-    cost_of_peak = config.cost_of_peak  # cost of the monthly peak
-
-    # electricity price parameters
-    tier_limit = (
-        df_scaled["Ground Truth"].quantile(0.95)
-        if not config.tier_limit
-        else config.tier_limit
-    )
+    cost_of_peak = config.peak_cost  # cost of the monthly peak
 
     # preparing the electricity price profile
     ep = generate_ep_profile(
@@ -331,9 +336,9 @@ def run_mpc(df_fc, config):
             bat_duration=bat_duration,
             initial_soc=initial_soc,
             bss_eff=bat_efficiency,
-            tier_load_magnitude=tier_limit,
-            tier2_multiplier=tier2_cost_multiplier,
-            peak_cost=cost_of_peak,
+            tier_load_magnitude=config.tier_load_magnitude,
+            tier2_multiplier=config.tier_cost_multiplier,
+            peak_cost=config.peak_cost,
         )
 
         # add the forecast label to the forecast operation results
@@ -383,7 +388,7 @@ def main():
     )
     parser.add_argument("--location", type=str, help="Location", default="Los_Angeles")
     parser.add_argument("--season", type=str, help="Winter or Summer", default="Summer")
-    parser.add_argument("--horizon", type=int, help="MPC horizon", default=24)
+    parser.add_argument("--horizon", type=int, help="MPC horizon", default=48)
     args = parser.parse_args()
     MPC_RESULTS_DIR = os.path.join(
         ROOT_DIR, "data", "results", "mpc_results", args.spatial_scale, args.location
@@ -410,7 +415,7 @@ def main():
     df_all = side_by_side_df(side_by_side_plots_dict)
     df_fc = select_horizon(df_all, args.horizon)
 
-    with open(os.path.join(ROOT_DIR, "mpc_config.json"), "r") as f:
+    with open(os.path.join(ROOT_DIR, "nle_config.json"), "r") as f:
         mpc_config = json.load(f)
 
     config = Config().from_dict(mpc_config)
