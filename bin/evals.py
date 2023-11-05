@@ -6,11 +6,15 @@ import os
 import sys
 import json
 import pickle
+import wandb
+import plotly.graph_objects as go
 
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils.paths import ROOT_DIR, EVAL_DIR
+from utils.paths import ROOT_DIR, EVAL_DIR, CLEAN_DATA_DIR, EXPERIMENT_WANDB
 
+from utils.pipeline import Config
+from utils.data_utils import get_hdf_keys
 from nle import run_nle
 
 # metrics
@@ -22,18 +26,76 @@ from sklearn.metrics import (
 )
 
 
-rmse = lambda df: mean_squared_error(df.iloc[:, 1], df.iloc[:, 0], squared=False)
-mae = lambda df: mean_absolute_error(df.iloc[:, 1], df.iloc[:, 0])
-mape = lambda df: mean_absolute_percentage_error(df.iloc[:, 1], df.iloc[:, 0])
-r2 = lambda df: r2_score(df.iloc[:, 1], df.iloc[:, 0])
-smape = lambda df: 200.0 * np.mean(
-    np.abs(df.iloc[:, 1] - df.iloc[:, 0])
-    / (np.abs(df.iloc[:, 1]) + np.abs(df.iloc[:, 0]))
+import numpy as np
+from sklearn.metrics import (
+    r2_score,
+    mean_absolute_error,
+    mean_squared_error,
+    mean_absolute_percentage_error,
 )
-max_peak_error = lambda df: np.max(np.abs(df.iloc[:, 1] - df.iloc[:, 0]))
-mean_n_peak_error = lambda df: np.mean(
-    np.sort(np.abs(df.iloc[:, 1] - df.iloc[:, 0]))[-5:]
-)
+
+
+def rmse(df):
+    df_clean = df.dropna()
+    try:
+        return mean_squared_error(
+            df_clean.iloc[:, 1], df_clean.iloc[:, 0], squared=False
+        )
+    except Exception:
+        return np.nan
+
+
+def mae(df):
+    df_clean = df.dropna()
+    try:
+        return mean_absolute_error(df_clean.iloc[:, 1], df_clean.iloc[:, 0])
+    except Exception:
+        return np.nan
+
+
+def mape(df):
+    df_clean = df.dropna()
+    try:
+        return mean_absolute_percentage_error(df_clean.iloc[:, 1], df_clean.iloc[:, 0])
+    except Exception:
+        return np.nan
+
+
+def r2(df):
+    df_clean = df.dropna()
+    try:
+        return r2_score(df_clean.iloc[:, 1], df_clean.iloc[:, 0])
+    except Exception:
+        return np.nan
+
+
+def smape(df):
+    df_clean = df.dropna()
+    try:
+        return 200.0 * np.mean(
+            np.abs(df_clean.iloc[:, 1] - df_clean.iloc[:, 0])
+            / (np.abs(df_clean.iloc[:, 1]) + np.abs(df_clean.iloc[:, 0]))
+        )
+    except Exception:
+        return np.nan
+
+
+def max_peak_error(df):
+    df_clean = df.dropna()
+    try:
+        return np.max(np.abs(df_clean.iloc[:, 1] - df_clean.iloc[:, 0]))
+    except Exception:
+        return np.nan
+
+
+def mean_n_peak_error(df):
+    df_clean = df.dropna()
+    try:
+        return np.mean(np.sort(np.abs(df_clean.iloc[:, 1] - df_clean.iloc[:, 0]))[-5:])
+    except Exception:
+        return np.nan
+
+
 net_load_error = None
 
 
@@ -69,35 +131,158 @@ def get_eval_df(eval_dict, horizon, season, model):
     return df_
 
 
-if __name__ == "__main__":
-    horizon = 48
-    season = "Winter"
-    model = "LightGBMModel"
-    scale = "1_county"
-    location = "Los_Angeles"
+def get_metrics_table(eval_dict, metrics_dict, scale, location):
+    """Loops through all horizons, seasons, and models and calculates metrics for each."""
 
-    with open(os.path.join(ROOT_DIR, "init_config.json"), "r") as fp:
-        init_config = json.load(fp)
+    keys = ["horizon_in_hours", "season", "model"]  #  nested dict keys of eval_dict
+    df_results = pd.DataFrame(columns=keys + list(metrics_dict.keys()))
+    for horizon in eval_dict.keys():
+        for season in eval_dict[horizon].keys():
+            for model in eval_dict[horizon][season][0].keys():
+                df_ = get_eval_df(eval_dict, horizon, season, model)
+                results_dict = dict(zip(keys, [horizon, season, model]))
+                for metric_str, metric_fn in metrics_dict.items():
+                    if metric_str == "nle":
+                        results_dict[metric_str] = metric_fn(
+                            eval_dict, scale, location, horizon, season, model
+                        )
+                    else:
+                        results_dict[metric_str] = metric_fn(df_)
 
-    metrics_dict = {
-        metric_str: metrics_dict[metric_str] for metric_str in init_config["metrics"]
-    }
+                df_result = pd.DataFrame(results_dict, index=[0])
+                df_results = pd.concat([df_results, df_result], axis=0)
 
-    eval_dict = load_eval_dict(scale, location)
+    df_results = df_results.reset_index(drop=True)
+    # implementing rmse-skill score compared to linear regression for each row
 
-    df_ = get_eval_df(eval_dict, horizon, season, model)
+    for metric in metrics_dict.keys():
+        df_results[metric + "_skill_score"] = (
+            1
+            - df_results[metric]
+            / df_results.loc[
+                df_results["model"] == "LinearRegressionModel", metric
+            ].values[0]
+        )
 
-    keys = ["horizon_in_hours", "season", "model"]
+    wandb.log({"Metrics_Table": wandb.Table(dataframe=df_results)})
+    return df_results
 
-    results_dict = dict(zip(keys, [horizon, season, model]))
 
-    for metric_str, metric_fn in metrics_dict.items():
-        if metric_str != "nle":
-            results_dict[metric_str] = metric_fn(df_)
-        else:
-            results_dict[metric_str] = metric_fn(
-                eval_dict, scale, location, horizon, season, model
+def side_by_side(dict_result_n_ahead, config):
+    print("Plotting side-by-side comparison of predictions and the ground truth")
+
+    config = Config().from_dict(config)
+
+    df_cov_train = pd.read_hdf(
+        os.path.join(CLEAN_DATA_DIR, f"{config.spatial_scale}.h5"),
+        key=f"{config.location}/{config.temp_resolution}min/train_cov",
+    )
+    df_cov_val = pd.read_hdf(
+        os.path.join(CLEAN_DATA_DIR, f"{config.spatial_scale}.h5"),
+        key=f"{config.location}/{config.temp_resolution}min/val_cov",
+    )
+    df_cov_test = pd.read_hdf(
+        os.path.join(CLEAN_DATA_DIR, f"{config.spatial_scale}.h5"),
+        key=f"{config.location}/{config.temp_resolution}min/test_cov",
+    )
+
+    model_names = list(dict_result_n_ahead[1]["Summer"][1].keys())
+    temp_data = {"Summer": df_cov_test.iloc[:, 0], "Winter": df_cov_val.iloc[:, 0]}  # type: ignore
+
+    for n_ahead, dict_result_season in dict_result_n_ahead.items():
+        for season, (_, preds_per_model, gt) in dict_result_season.items():
+            fig = go.Figure()
+
+            # Add the ground truth data to the left axis
+            fig.add_trace(
+                go.Scatter(
+                    x=gt.pd_series().index,
+                    y=gt.pd_series().values,
+                    name="Ground Truth",
+                    yaxis="y1",
+                )
             )
 
-    df_results = pd.DataFrame(results_dict, index=[0])
-    print(df_results)
+            for model_name in model_names:
+                preds = preds_per_model[model_name]
+                fig.add_trace(
+                    go.Scatter(
+                        x=preds.pd_series().index,
+                        y=preds.pd_series().values,
+                        name=model_name,
+                        yaxis="y1",
+                    )
+                )
+
+            # Add the df_cov_test data to the right axis
+
+            series_weather = temp_data[season]
+            fig.add_trace(
+                go.Scatter(
+                    x=series_weather.index,
+                    y=series_weather.values,
+                    name="temperature",
+                    yaxis="y2",
+                    line=dict(dash="dot", color="grey"),  # Set the line style to dotted
+                )
+            )
+
+            fig.update_layout(
+                title=f"{season} - Horizon: {n_ahead// config.timesteps_per_hour} Hours",
+                xaxis=dict(title="Time"),
+                yaxis=dict(title=f"Power [{config.unit}]", side="left"),
+                yaxis2=dict(title="Temperature [°C]", overlaying="y", side="right"),
+            )
+
+            wandb.log(
+                {
+                    f"{season} - Side-by-side comparison of predictions and the ground truth": fig
+                }
+            )
+    return None
+
+
+if __name__ == "__main__":
+    # os.environ["WANDB_MODE"] = "dryrun"
+    wandb.login()
+
+    scale_locs, _ = get_hdf_keys(CLEAN_DATA_DIR)
+
+    # over-writing
+    scale_locs["5_building"] = ["building_1", "building_2"]
+    scale_locs["1_county"] = ["New_York", "Sacramento"]
+
+    for scale, locations in scale_locs.items():
+        for location in locations:
+            print(f"Running evaluation for {scale} - {location}")
+            with open(os.path.join(ROOT_DIR, "init_config.json"), "r") as fp:
+                init_config = json.load(fp)
+                init_config["spatial_scale"] = scale
+                init_config["location"] = location
+            # Filter metrics
+            metrics_dict = {
+                metric_str: metrics_dict[metric_str]
+                for metric_str in init_config["metrics"]
+            }
+
+            # starting wandb run
+            name_id = (
+                scale
+                + "_"
+                + location
+                + "_"
+                + str(init_config["temp_resolution"])
+                + "min"
+            )
+
+            wandb.init(
+                project=EXPERIMENT_WANDB, name=name_id, id=name_id, config=init_config
+            )
+
+            eval_dict = load_eval_dict(scale, location)
+
+            df_results = get_metrics_table(eval_dict, metrics_dict, scale, location)
+
+            fig = side_by_side(eval_dict, init_config)
+
+            wandb.finish()

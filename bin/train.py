@@ -13,11 +13,7 @@ import wandb
 from evaluation import evaluate
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils.pipeline import (
-    Config,
-    get_best_run_config,
-    derive_config_params,
-)
+from utils.pipeline import Config, get_best_run_config
 
 from utils.model_utils import (
     load_trained_models,
@@ -27,7 +23,6 @@ from utils.model_utils import (
     log_models_to_wandb,
 )
 
-from utils.eval_utils import get_run_results
 from utils.paths import ROOT_DIR, EXPERIMENT_WANDB, TUNING_WANDB, EVAL_DIR
 
 
@@ -35,7 +30,6 @@ def training(init_config: Dict):
     """Loads existing models (from disk) if they exist, otherwise trains new models with optimial hyperparameters (from wandb) if they exist"""
 
     config = Config().from_dict(init_config)
-    config = derive_config_params(config)
     models_to_train = config.models_to_train
 
     # Importing hyperparameters from wandb for models that have previously been tuned
@@ -156,9 +150,5 @@ if __name__ == "__main__":
             raise Exception(
                 "No evaluation found, please run evaluation first or set --evaluate to True"
             )
-
-    if args.results:
-        df_results = get_run_results(init_config, eval_dict)
-        wandb.log({"error_metrics_table": wandb.Table(dataframe=df_results)})
 
     wandb.finish()

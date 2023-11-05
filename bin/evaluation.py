@@ -7,7 +7,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.data_utils import get_longest_subseries_idx, create_directory
 from utils.model_utils import Config, load_data
-from utils.pipeline import data_pipeline, derive_config_params
+from utils.pipeline import data_pipeline
 from utils.paths import EVAL_DIR
 from utils.eval_utils import backtesting, extract_forecasts_per_horizon
 
@@ -35,7 +35,6 @@ def evaluate(init_config: Dict, models_dict: Dict):
         print("No existing evaluation found, running evaluation...")
 
         data = load_data(config)
-        config = derive_config_params(config)
 
         piped_data, pipeline = data_pipeline(config, data)
 

@@ -57,7 +57,7 @@ def get_hdf_keys(dir_path):
             with h5py.File(os.path.join(dir_path, file_name), "r") as f:
                 # print the keys in the file
                 locations = list(f.keys())
-                locations_per_file[file_name] = locations
+                locations_per_file[file_name.split(".")[0]] = locations
                 for location in locations:
                     temporal_resolutions = list(f[location].keys())  # type: ignore
                     temporal_resolutions_per_file[file_name] = temporal_resolutions

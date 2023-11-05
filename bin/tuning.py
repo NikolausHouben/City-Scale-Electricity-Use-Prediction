@@ -13,7 +13,7 @@ import wandb
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.paths import ROOT_DIR, SWEEP_DIR, TUNING_WANDB
 
-from utils.pipeline import load_data, derive_config_params, data_pipeline
+from utils.pipeline import load_data, data_pipeline
 
 from utils.data_utils import get_longest_subseries_idx
 
@@ -26,7 +26,6 @@ def train_eval_tuning():
     wandb.init(project=TUNING_WANDB)
     wandb.config.update(init_config)
     config = wandb.config
-    config = derive_config_params(config)
 
     print("Getting data...")
 

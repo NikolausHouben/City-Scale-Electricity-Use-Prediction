@@ -29,8 +29,7 @@
         "smape",
         "mape",
         "max_peak_error",
-        "mean_n_peak_error",
-        "nle"
+        "mean_n_peak_error"
     ],
     "hours_persistence": 48
 }

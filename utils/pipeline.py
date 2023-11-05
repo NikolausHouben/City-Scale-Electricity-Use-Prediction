@@ -73,12 +73,38 @@ class Config:
         config = cls()
         for key, value in data.items():
             config[key] = value  # Preserve nested dictionaries without converting
+
+        config.derive_config_params()
         return config
 
     def copy(self):
         new_instance = Config()
         new_instance.data = self.data.copy()
         return new_instance
+
+    def derive_config_params(self):
+        if self.temp_resolution == 60:
+            timestep_encoding = ["hour"]
+        elif self.temp_resolution == 15:
+            timestep_encoding = ["quarter"]
+        else:
+            timestep_encoding = ["hour", "minute"]
+
+        datetime_encoders = {
+            "cyclic": {"future": timestep_encoding},
+            "datetime_attribute": {"future": self.datetime_attributes},
+        }
+
+        datetime_encoders = datetime_encoders if self.datetime_encodings else None
+        self["datetime_encoders"] = datetime_encoders
+        self.timesteps_per_hour = int(60 / self.temp_resolution)
+        # input and output length for models
+        self.n_lags = self.lookback_in_hours * self.timesteps_per_hour
+        self.n_ahead = self.horizon_in_hours * self.timesteps_per_hour
+        # evaluation stride, how often to evaluate the model, in this case we evaluate every n_ahead steps
+        self.eval_stride = int(np.sqrt(self.n_ahead))
+
+        return self
 
 
 def data_pipeline(config, data):
@@ -297,27 +323,3 @@ def load_data(config):
     }
 
     return data
-
-
-def derive_config_params(config):
-    if config.temp_resolution == 60:
-        timestep_encoding = ["hour"]
-    elif config.temp_resolution == 15:
-        timestep_encoding = ["quarter"]
-    else:
-        timestep_encoding = ["hour", "minute"]
-
-    datetime_encoders = {
-        "cyclic": {"future": timestep_encoding},
-        "datetime_attribute": {"future": config.datetime_attributes},
-    }
-
-    datetime_encoders = datetime_encoders if config.datetime_encodings else None
-    config["datetime_encoders"] = datetime_encoders
-    config.timesteps_per_hour = int(60 / config.temp_resolution)
-    # input and output length for models
-    config.n_lags = config.lookback_in_hours * config.timesteps_per_hour
-    config.n_ahead = config.horizon_in_hours * config.timesteps_per_hour
-    # evaluation stride, how often to evaluate the model, in this case we evaluate every n_ahead steps
-    config.eval_stride = int(np.sqrt(config.n_ahead))
-    return config

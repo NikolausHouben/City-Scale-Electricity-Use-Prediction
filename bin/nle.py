@@ -177,7 +177,9 @@ def run_operations(dfs_mpc, config):
 
         # implement peak condition
         if peak < net_load:
+            print(f"Peak updated to {net_load} from {peak}")
             peak = net_load
+
         set_point.update(
             {
                 "load": load_set_point_time,
