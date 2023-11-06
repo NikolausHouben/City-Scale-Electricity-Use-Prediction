@@ -87,11 +87,6 @@ def run_opt(
 
     m.net_load_lb = Constraint(m.T, rule=net_load_lb)
 
-    def net_load_ub(m, t):
-        return m.net_load[t] <= 0.4
-
-    m.net_load_ub = Constraint(m.T, rule=net_load_ub)
-
     def tier_load_definition(m, t):
         return m.net_load[t] == m.tier1_net_load[t] + m.tier2_net_load[t]
 
@@ -292,6 +287,11 @@ def run_mpc(df_fc, config):
     timesteps_per_hour = infer_frequency(df_fc) // 60
     df_scaled, gt_max, gt_min = scale_by_gt(df_fc)
 
+    if config.tier_load_magnitude:
+        tier_load_magnitude = config.tier_load_magnitude
+    else:
+        tier_load_magnitude = df_scaled.quantile(0.8)["Ground Truth"]
+
     # battery parameters
     initial_soc = (
         config.bat_initial_soc
@@ -336,7 +336,7 @@ def run_mpc(df_fc, config):
             bat_duration=bat_duration,
             initial_soc=initial_soc,
             bss_eff=bat_efficiency,
-            tier_load_magnitude=config.tier_load_magnitude,
+            tier_load_magnitude=tier_load_magnitude,
             tier2_multiplier=config.tier_cost_multiplier,
             peak_cost=config.peak_cost,
         )
@@ -390,20 +390,11 @@ def main():
     parser.add_argument("--season", type=str, help="Winter or Summer", default="Summer")
     parser.add_argument("--horizon", type=int, help="MPC horizon", default=48)
     args = parser.parse_args()
+
     MPC_RESULTS_DIR = os.path.join(
         ROOT_DIR, "data", "results", "mpc_results", args.spatial_scale, args.location
     )
     create_directory(MPC_RESULTS_DIR)
-
-    # Initialize your project
-
-    # project_name = SYNTHESIS_WANDB
-    # run = wandb.init(
-    #     project=project_name,
-    #     name="mpc_runs",
-    #     id="mpc_runs",
-    #     resume=True,
-    # )
 
     api = wandb.Api()
     runs = api.runs(EXPERIMENT_WANDB)
@@ -418,7 +409,7 @@ def main():
     with open(os.path.join(ROOT_DIR, "nle_config.json"), "r") as f:
         mpc_config = json.load(f)
 
-    config = Config().from_dict(mpc_config)
+    config = Config().from_dict(mpc_config, is_initial_config=False)
 
     cost_results, results = run_mpc(df_fc, config)
 

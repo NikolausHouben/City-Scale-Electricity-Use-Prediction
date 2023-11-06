@@ -69,12 +69,14 @@ class Config:
         self.data[key] = value
 
     @classmethod
-    def from_dict(cls, data):
+    def from_dict(cls, data, is_initial_config=True):
         config = cls()
         for key, value in data.items():
             config[key] = value  # Preserve nested dictionaries without converting
 
-        config.derive_config_params()
+        if is_initial_config:
+            config.derive_config_params()
+
         return config
 
     def copy(self):

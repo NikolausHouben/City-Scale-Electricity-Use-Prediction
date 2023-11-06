@@ -567,3 +567,20 @@ def plot_location_splits(dir_path, scale_idx, location_idx, show="trg"):
         )
     fig.show()
     return fig
+
+
+def generate_ep_profile(df, hour_shift=3, mu=0.0, sigma=0.3):
+    """Generate electricity price profiles based on the ground truth of the load"""
+
+    timesteps_per_hour = int(infer_frequency(df) // 60)
+    shift_in_timesteps = hour_shift * timesteps_per_hour
+    # step 1: shift the ground truth by n hours
+    series = df.iloc[:, 0]
+    ep1 = series.shift(shift_in_timesteps)
+    # step 2: add a random noise to it
+    noise = np.random.normal(mu, sigma, len(ep1))
+    ep2 = ep1 + noise
+    # step 3: smooth it
+    ep3 = ep2.ewm(span=timesteps_per_hour * 6).mean().fillna(method="bfill")
+    ep4 = ep3.to_frame("ep")
+    return ep4
