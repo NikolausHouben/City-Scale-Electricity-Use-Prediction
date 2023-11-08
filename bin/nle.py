@@ -44,13 +44,13 @@ def run_opt(load_forecast, bss_energy, peak, config, prices=None):
     # m.energy_prices = Param(m.T, initialize=prices)
     m.demand = Param(m.T, initialize=load_forecast)
     m.bss_energy_start = Param(initialize=bss_energy)
-    m.monthly_peak = Param(initialize=peak)
+    m.rel_peak = Param(initialize=peak)
 
     # Config Params
     m.bss_size = Param(initialize=config.bat_size_kwh)
     m.bss_eff = Param(initialize=config.bat_efficiency)
     m.bss_max_pow = Param(initialize=config.bat_max_power)
-    m.bss_end_soc = Param(initialize=config.bat_end_soc_weight)
+    m.bss_end_soc_weight = Param(initialize=config.bat_end_soc_weight)
     m.peak_cost = Param(initialize=config.peak_cost)
 
     # variables
@@ -72,7 +72,7 @@ def run_opt(load_forecast, bss_energy, peak, config, prices=None):
     m.operation_peak = Constraint(m.T, rule=operation_peak)
 
     def relevant_peak(m):
-        return m.peak - m.monthly_peak == m.dev_peak_plus - m.dev_peak_minus
+        return m.peak - m.rel_peak == m.dev_peak_plus - m.dev_peak_minus
 
     m.relevant_peak = Constraint(rule=relevant_peak)
 
@@ -100,16 +100,15 @@ def run_opt(load_forecast, bss_energy, peak, config, prices=None):
     m.bat_lim_power_neg = Constraint(m.T, rule=bat_lim_power_neg)
 
     def cost(m):
-        terminal_cost_weight = m.bss_end_soc
-        final_soc = m.bss_en[len(m.T) - 1]
-        terminal_cost = terminal_cost_weight * (final_soc - m.bss_energy_start) ** 2
+        terminal_cost_weight = m.bss_end_soc_weight
+        final_soc = m.bss_en[len(m.T) - 1] / m.bss_size
+        terminal_cost = (final_soc - m.bss_energy_start) ** 2
+        peak_costs = (m.dev_peak_plus + m.rel_peak) * m.peak_cost
 
-        above_peak_costs = (m.dev_peak_plus + m.monthly_peak) * m.peak_cost
-        below_peak_reward = (m.dev_peak_minus + m.monthly_peak) * m.peak_cost
-
-        peak_costs = above_peak_costs + below_peak_reward
-
-        return peak_costs + terminal_cost
+        total_costs = (
+            1 - terminal_cost_weight
+        ) * peak_costs + terminal_cost_weight * terminal_cost
+        return total_costs
 
     m.ObjectiveFunction = Objective(rule=cost)
 
@@ -118,8 +117,12 @@ def run_opt(load_forecast, bss_energy, peak, config, prices=None):
 
     # get results
     res_df = pd.DataFrame(index=list(m.T))
-    for v in [m.net_load, m.bss_p_ch, m.bss_en]:
+    for v in [m.net_load, m.bss_en, m.bss_p_ch]:
         res_df = res_df.join(pd.Series(v.get_values(), name=v.getname()))
+
+    res_df["load_forecast"] = list(m.demand._data.values())
+    # fig = px.line(res_df, title="MPC Results")
+    # fig.show()
 
     sp = res_df.iloc[1].to_dict()
 
@@ -131,64 +134,76 @@ def run_operations(dfs_mpc, config):
     # function to run operations of given a forecast and system data
 
     # initializing peak (it will store the historical peak)
-    peak = config.peak_init
     # initialize energy in the battery with the initial soc
     energy_in_the_battery = config.bat_size_kwh * config.bat_initial_soc
 
     operations = {}
     for t, df_mpc in enumerate(dfs_mpc[:-1]):
         load_forecast = df_mpc.iloc[:, 0].values.tolist()
-        # prices = df_mpc.iloc[:, 2].values.tolist()
+        load_ground_truth = df_mpc.iloc[:, 1].values.tolist()
 
-        set_point = run_opt(
+        if t == 0:
+            peak = sum(load_forecast) / len(load_forecast)
+        else:
+            peak = min(min(opr_net_load, peak), sum(load_forecast) / len(load_forecast))
+
+        sp = run_opt(
             load_forecast=load_forecast,
             bss_energy=energy_in_the_battery,
             peak=peak,
             config=config,
         )
 
-        set_point_time = t + 1  # set point is applied to the next hour
-        load_set_point_time = (
-            dfs_mpc[set_point_time].iloc[[0], [1]].values.flatten()[0]
-        )  # get the ground truth
-        net_load = load_set_point_time + set_point["bss_p_ch"]
+        set_point = {}
 
-        if net_load > peak:
-            peak = min(
-                net_load, max(dfs_mpc[set_point_time].iloc[:, 0].values.tolist())
-            )
+        opr_net_load = (
+            load_ground_truth[1] + sp["bss_p_ch"]
+        )  # update the ground truth with the set point
 
         set_point.update(
             {
-                "load": load_set_point_time,
-                "opr_net_load": net_load,
-                "peak": peak,
-                "forecast": load_forecast[0],
+                "load_actual": load_ground_truth[1],
+                "load_forecast": load_forecast[1],
+                "opt_net_load": sp["net_load"],
+                "opr_net_load": opr_net_load,
+                "bss_en": sp["bss_en"],
+                "bss_p_ch": sp["bss_p_ch"],
             }
         )
 
         # update energy in the battery
-        energy_in_the_battery = set_point["bss_en"]
+        energy_in_the_battery = sp["bss_en"]
 
-        operations.update({set_point_time: set_point})
+        operations.update({t: set_point})
 
-    return pd.DataFrame(operations).T
+    df_operations = pd.DataFrame(operations).T
+
+    df_operations.index = pd.date_range(
+        dfs_mpc[0].index[1], periods=len(df_operations), freq="H"
+    )
+
+    return df_operations
 
 
-def calculate_operational_costs(df_operations, config):
+def calculate_nle_stats(df_op, config):
     # ex-post cost calculation
 
-    print("Calculating costs")
+    nle_stats = {}
 
-    cost_results = {}
+    # the difference between the peak of the load and the net load for each day
+    peaks_diff = (
+        df_op.loc[df_op["load_actual"].groupby(df_op.index.day).idxmax().values][
+            ["opr_net_load", "load_actual"]
+        ]
+        .diff(axis=1)
+        .mean()[1]
+    )
 
-    bss_en = df_operations.filter(like="bss_en")
+    nle_stats["peak_reward"] = peaks_diff * config.peak_cost
+    # checking if the bess is properly utilized
+    nle_stats["bss_en_spread"] = df_op["bss_en"].max() - df_op["bss_en"].min()
 
-    peak_penalty = df_operations["opr_net_load"].max() * config.peak_cost
-
-    cost_results.update({"total_cost": peak_penalty})
-
-    return cost_results
+    return nle_stats
 
 
 def run_nle(eval_dict, scale, location, horizon, season, model):
@@ -203,59 +218,75 @@ def run_nle(eval_dict, scale, location, horizon, season, model):
         nle_config = json.load(fp)
         nle_config = Config.from_dict(nle_config, is_initial_config=False)
 
+    wandb.config.update(nle_config.data)
+
     # getting predictions for the given horizon and season
     ts_list_per_model = eval_dict[horizon][season][
         0
     ]  # idx=0: ts_list (see eval_utils.py)
 
     # getting the ground truth
-    gt = eval_dict[horizon][season][
-        2
-    ].pd_dataframe()  # idx=2: groundtruth (see eval_utils.py)
-    gt.columns = ["gt_" + gt.columns[0]]  # rename column to avoid confusion
+    gt_series = eval_dict[horizon][season][2]
+    df_gt = gt_series.pd_dataframe()  # idx=2: groundtruth (see eval_utils.py)
+    df_gt.columns = ["gt_" + df_gt.columns[0]]  # rename column to avoid confusion
 
     # grabbing stats for scaling the predictions and ground truth -> energy prices are a function of the ground truth
-    gt_max = gt.max().values[0]
-    gt_min = gt.min().values[0]
+    gt_max = df_gt.max().values[0]
+    gt_min = df_gt.min().values[0]
 
     print(f"Running MPC for {model}")
 
     # Ground truth operations and costs as baseline
-    dfs_mpc_gt = [
+    dfs = [
         (
             (
                 (
                     ts_forecast.pd_dataframe()
-                    .join(gt, how="left")
+                    .join(df_gt, how="left")
                     .join(
-                        gt.rename({gt.columns[0]: "gt_sup"}, axis=1), how="left"
-                    )  # adding gt twice so when we use .iloc[:, 1:] we get the gt, gt, ep
+                        df_gt.rename({df_gt.columns[0]: "gt_sup"}, axis=1), how="left"
+                    )  # adding gt twice so when we use .iloc[:, 1:] we get the gt, gt for the baseline
                 )
                 - gt_min
             )
             / (gt_max - gt_min)
-        ).iloc[:, 1:]
+        )
         for ts_forecast in ts_list_per_model[model]
     ]
 
-    df_operations_gt = run_operations(dfs_mpc_gt, nle_config)
-    costs_gt = calculate_operational_costs(df_operations_gt, nle_config)
+    dfs_mpc_forecast = [df_mpc.iloc[:, :2] for df_mpc in dfs]
 
-    # Model operations and costs
-    dfs_mpc = [
-        ((ts_forecast.pd_dataframe().join(gt, how="left")) - gt_min) / (gt_max - gt_min)
-        for ts_forecast in ts_list_per_model[model]
-    ]
+    dfs_mpc_gt = [df_mpc.iloc[:, 1:] for df_mpc in dfs]
 
-    # calculating the operations and costs for the ground truth
+    dfs_mpc_dict = {"gt": dfs_mpc_gt, "forecast": dfs_mpc_forecast}
 
-    df_operations = run_operations(dfs_mpc, nle_config)
-    costs = calculate_operational_costs(df_operations, nle_config)
-    nle_score = costs["total_cost"] - costs_gt["total_cost"]
+    nle_stats_dict = {}
+    dfs_operations = []
 
-    df_operations_gt.columns = ["gt_" + col for col in df_operations_gt.columns]
-    df_operations = pd.concat([df_operations, df_operations_gt], axis=1)
-    df_operations.to_csv(MPC_RESULTS_DIR + f"/{model}_operations.csv")
+    for key, dfs_mpc in dfs_mpc_dict.items():
+        # running operations
+        df_operations = run_operations(dfs_mpc, nle_config)
+
+        # calculating nle stats
+        nle_stats = calculate_nle_stats(df_operations, nle_config)
+
+        df_operations.columns = [f"{key}_{col}" for col in df_operations.columns]
+        dfs_operations.append(df_operations)
+        nle_stats_dict.update({key: nle_stats})
+
+    df_nle_stats = pd.DataFrame(nle_stats_dict).T.reset_index()
+    df_op = pd.concat(dfs_operations, axis=1)
+
+    fig = px.line(df_op, title=f"{location} - {season} - {horizon} - {model}")
+    wandb.log({"nle_operations": fig})
+
+    wandb.log({"nle_stats": wandb.Table(dataframe=df_nle_stats)})
+
+    nle_score = (
+        nle_stats_dict["gt"]["peak_reward"] - nle_stats_dict["forecast"]["peak_reward"]
+    )
+
+    wandb.log({"nle_score": nle_score})
 
     return nle_score
 
@@ -265,18 +296,18 @@ def main():
     parser.add_argument("--scale", type=str, help="Spatial scale", default="1_county")
     parser.add_argument("--location", type=str, help="Location", default="Los_Angeles")
     parser.add_argument("--season", type=str, help="Winter or Summer", default="Summer")
-    parser.add_argument("--horizon", type=int, help="MPC horizon", default=24)
+    parser.add_argument("--horizon", type=int, help="MPC horizon", default=48)
     parser.add_argument("--model", type=str, default="RandomForest")
     args = parser.parse_args()
 
+    # os.environ["WANDB_MODE"] = "dryrun"
+    wandb.init(project="nle")
     with open(os.path.join(EVAL_DIR, f"{args.scale}/{args.location}.pkl"), "rb") as f:
         eval_dict = pickle.load(f)
 
     costs = run_nle(
         eval_dict, args.scale, args.location, args.horizon, args.season, args.model
     )
-
-    print(f"NLE score: {costs}")
 
 
 if __name__ == "__main__":
