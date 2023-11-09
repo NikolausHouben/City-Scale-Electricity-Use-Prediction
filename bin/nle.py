@@ -124,7 +124,7 @@ def run_opt(load_forecast, bss_energy, peak, config, prices=None):
     # fig = px.line(res_df, title="MPC Results")
     # fig.show()
 
-    sp = res_df.iloc[1].to_dict()
+    sp = res_df.iloc[0].to_dict()
 
     return sp
 
@@ -157,13 +157,13 @@ def run_operations(dfs_mpc, config):
         set_point = {}
 
         opr_net_load = (
-            load_ground_truth[1] + sp["bss_p_ch"]
+            load_ground_truth[0] + sp["bss_p_ch"]
         )  # update the ground truth with the set point
 
         set_point.update(
             {
-                "load_actual": load_ground_truth[1],
-                "load_forecast": load_forecast[1],
+                "load_actual": load_ground_truth[0],
+                "load_forecast": load_forecast[0],
                 "opt_net_load": sp["net_load"],
                 "opr_net_load": opr_net_load,
                 "bss_en": sp["bss_en"],
@@ -196,7 +196,7 @@ def calculate_nle_stats(df_op, config):
             ["opr_net_load", "load_actual"]
         ]
         .diff(axis=1)
-        .mean()[1]
+        .max()[1]
     )
 
     nle_stats["peak_reward"] = peaks_diff * config.peak_cost
