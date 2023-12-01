@@ -370,24 +370,34 @@ def get_latest_plotly_plots(files):
     # get the most recent file for each horizon
     zip_files = combinations(files, 2)
     files_to_plot = {}
-    for file1, file2 in zip_files:
-        if check_if_same_horizon_plot(file1, file2):
-            file_recent = choose_more_recent(file1, file2)
-            files_to_plot[file_recent._attrs["name"]] = file_recent
-        else:
-            files_to_plot[file1._attrs["name"]] = file1
-            files_to_plot[file2._attrs["name"]] = file2
+    if len(files) == 1:
+        files_to_plot[files[0]._attrs["name"]] = files[0]
+    else:
+        for file1, file2 in zip_files:
+            if check_if_same_horizon_plot(file1, file2):
+                file_recent = choose_more_recent(file1, file2)
+                files_to_plot[file_recent._attrs["name"]] = file_recent
+            else:
+                files_to_plot[file1._attrs["name"]] = file1
+                files_to_plot[file2._attrs["name"]] = file2
 
     files_list = list(files_to_plot.values())
+
     return files_list
 
 
 def download_plotly_plots(files_to_plot):
     side_by_side_plots_dict = {}
-    for file in files_to_plot:
-        plot = file.download(replace=True)
+    i = 0
+    for file_ in files_to_plot:
+        plot = file_.download(replace=True)
         data = json.load(plot)
-        plot_name = data["layout"]["title"]["text"]
+        try:
+            plot_name = data["layout"]["title"]["text"]
+        except:
+            plot_name = f"Plot {i}"
+
+        i += 1
         side_by_side_plots_dict[plot_name] = data
 
     return side_by_side_plots_dict
@@ -464,7 +474,12 @@ def get_run_name_id_dict(runs):
     name_id_dict = {}
     for run_ in runs:
         scale = run_.name.split("_")[0] + "_" + run_.name.split("_")[1]
-        location = run_.name.split("_")[2] + "_" + run_.name.split("_")[3]
+
+        # either the location is the third or the fourth element of the name
+        try:
+            location = run_.name.split("_")[2] + "_" + run_.name.split("_")[3]
+        except:
+            location = run_.name.split("_")[2]
         name_id_dict[f"{scale}_{location}"] = run_.id
     return name_id_dict
 

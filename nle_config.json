@@ -3,6 +3,6 @@
     "bat_efficiency": 0.95,
     "bat_initial_soc": 0.5,
     "bat_max_power": 1,
-    "bat_end_soc_weight": 0.1,
+    "bat_end_soc_weight": 0.05,
     "peak_cost": 1
 }
