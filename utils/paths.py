@@ -14,5 +14,5 @@ RESULTS_DIR = os.path.join(ROOT_DIR, "results")
 
 # wandb projects
 TUNING_WANDB = "Multi_Scale_Paper_Tuning"
-EXPERIMENT_WANDB = "Multi_Scale_Paper_Final_Runs"
+EXPERIMENT_WANDB = "Multi_Scale_Paper_Final_Runs_2"
 SYNTHESIS_WANDB = "Multi_Scale_Paper_Synthesis"

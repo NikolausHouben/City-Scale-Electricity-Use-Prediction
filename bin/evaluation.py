@@ -138,22 +138,23 @@ def get_metrics_table(eval_dict, metrics_dict, scale, location):
     df_results = pd.DataFrame(columns=keys + list(metrics_dict.keys()))
     for horizon in eval_dict.keys():
         for season in eval_dict[horizon].keys():
-            for model in eval_dict[horizon][season][0].keys():
-                df_ = get_eval_df(eval_dict, horizon, season, model)
-                results_dict = dict(zip(keys, [horizon, season, model]))
-                for metric_str, metric_fn in metrics_dict.items():
-                    if metric_str == "nle":
-                        if horizon == 1:  # nle only works for horizon > 1
-                            results_dict[metric_str] = np.nan
+            if season == "Summer":
+                for model in eval_dict[horizon][season][0].keys():
+                    df_ = get_eval_df(eval_dict, horizon, season, model)
+                    results_dict = dict(zip(keys, [horizon, season, model]))
+                    for metric_str, metric_fn in metrics_dict.items():
+                        if metric_str == "nle":
+                            if horizon == 1:  # nle only works for horizon > 1
+                                results_dict[metric_str] = np.nan
+                            else:
+                                results_dict[metric_str] = metric_fn(
+                                    eval_dict, scale, location, horizon, season, model
+                                )[0]
                         else:
-                            results_dict[metric_str] = metric_fn(
-                                eval_dict, scale, location, horizon, season, model
-                            )[0]
-                    else:
-                        results_dict[metric_str] = metric_fn(df_)
+                            results_dict[metric_str] = metric_fn(df_)
 
-                df_result = pd.DataFrame(results_dict, index=[0])
-                df_results = pd.concat([df_results, df_result], axis=0)
+                    df_result = pd.DataFrame(results_dict, index=[0])
+                    df_results = pd.concat([df_results, df_result], axis=0)
 
     df_results = df_results.reset_index(drop=True)
 
@@ -277,15 +278,15 @@ if __name__ == "__main__":
     # os.environ["WANDB_MODE"] = "dryrun"
     wandb.login()
 
-    scale_locs, _ = get_hdf_keys(CLEAN_DATA_DIR)
-
-    # over-writing
-    scale_locs["5_building"] = ["building_1", "building_2"]
+    scale_locs = {
+        "5_building": ["building_1", "building_2"],
+        "4_neighborhood": ["neighborhood_0", "neighborhood_1", "neighborhood_2"],
+        "2_town": ["town_0", "town_1", "town_2"],
+        "1_county": ["Los_Angeles", "New_York", "Sacramento"],
+    }
 
     for scale, locations in scale_locs.items():
         for location in locations:
-            scale = "4_neighborhood"
-            location = "neighborhood_2"
             print(f"Running evaluation for {scale} - {location}")
             with open(os.path.join(ROOT_DIR, "init_config.json"), "r") as fp:
                 init_config = json.load(fp)
@@ -312,5 +313,3 @@ if __name__ == "__main__":
             dist = error_distribution(eval_dict)
 
             wandb.finish()
-            break
-        break

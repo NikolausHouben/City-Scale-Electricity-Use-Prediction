@@ -19,8 +19,7 @@
     "use_cov_as_past_cov": false,
     "use_auxiliary_data": true,
     "eval_seasons": [
-        "Summer",
-        "Winter"
+        "Summer"
     ],
     "metrics": [
         "rmse",
@@ -28,8 +27,7 @@
         "r2_score",
         "smape",
         "mape",
-        "max_peak_error",
-        "mean_n_peak_error"
+        "nle"
     ],
     "hours_persistence": 48
 }

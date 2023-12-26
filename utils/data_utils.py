@@ -16,6 +16,7 @@ from timezonefinder import TimezoneFinder
 from darts.utils.missing_values import fill_missing_values
 import h5py
 import wandb
+import re
 import plotly.graph_objects as go
 
 
@@ -482,6 +483,11 @@ def get_run_name_id_dict(runs):
             location = run_.name.split("_")[2]
         name_id_dict[f"{scale}_{location}"] = run_.id
     return name_id_dict
+
+
+def extract_horizon(col):
+    match = re.search(r"Horizon: (\d+)", col)
+    return int(match.group(1)) if match else float("inf")
 
 
 def remove_outliers(df, column, lower_percentile=0, upper_percentile=100):
