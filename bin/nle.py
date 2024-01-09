@@ -281,9 +281,11 @@ def run_nle(eval_dict, scale, location, horizon, season, model):
     df_nle_stats = pd.DataFrame(nle_stats_dict).T.reset_index()
     df_op = pd.concat(dfs_operations, axis=1)
 
-    nle_score = abs(
+    nle_score = (
         nle_stats_dict["gt"]["peak_reward"] - nle_stats_dict["forecast"]["peak_reward"]
     )
+
+    nle_score = max(nle_score, 0)
 
     return nle_score, df_op, df_nle_stats
 
@@ -293,8 +295,8 @@ def main():
     parser.add_argument("--scale", type=str, help="Spatial scale", default="1_county")
     parser.add_argument("--location", type=str, help="Location", default="Los_Angeles")
     parser.add_argument("--season", type=str, help="Winter or Summer", default="Summer")
-    parser.add_argument("--horizon", type=int, help="MPC horizon", default=48)
-    parser.add_argument("--model", type=str, default="BlockRNNModel")
+    parser.add_argument("--horizon", type=int, help="MPC horizon", default=24)
+    parser.add_argument("--model", type=str, default="XGBModel")
     parser.add_argument("--wandb_mode", type=str, default="dryrun")
     args = parser.parse_args()
 

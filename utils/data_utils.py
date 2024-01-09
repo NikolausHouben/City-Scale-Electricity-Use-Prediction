@@ -457,10 +457,12 @@ def get_best_model_per_scale_and_horizon(df, metric):
     Gets the model with the best performance for each scale and horizon based in a pd.DataFrame with the error scores of the models,
     based on the metric specified.
     """
-    df_sorted = df.sort_values(
-        by=["scale", metric], ascending=False if metric == "rmse_skill_score" else True
-    )
-    df_sorted = df_sorted.drop_duplicates(
+
+    if ("skill" in metric) or ("r2" in metric):
+        df_metrics_grouped = df.sort_values(by=["scale", metric], ascending=False)
+    else:
+        df_metrics_grouped = df.sort_values(by=["scale", metric], ascending=True)
+    df_sorted = df_metrics_grouped.drop_duplicates(
         subset=["scale", "horizon_in_hours"], keep="first"
     )
     df_sorted = df_sorted.sort_values(by=["scale", "horizon_in_hours"])

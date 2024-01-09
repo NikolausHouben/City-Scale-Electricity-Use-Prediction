@@ -97,6 +97,10 @@ def mean_n_peak_error(df):
         return np.nan
 
 
+def diebold(df):
+    pass
+
+
 metrics_dict = {
     "rmse": rmse,
     "mape": mape,
@@ -106,6 +110,7 @@ metrics_dict = {
     "max_peak_error": max_peak_error,
     "mean_n_peak_error": mean_n_peak_error,
     "nle": run_nle,
+    "db": diebold,
 }
 
 
@@ -279,10 +284,10 @@ if __name__ == "__main__":
     wandb.login()
 
     scale_locs = {
-        "5_building": ["building_1", "building_2"],
-        "4_neighborhood": ["neighborhood_0", "neighborhood_1", "neighborhood_2"],
-        "2_town": ["town_0", "town_1", "town_2"],
-        "1_county": ["Los_Angeles", "New_York", "Sacramento"],
+        "5_building": ["building_1"],
+        "4_neighborhood": ["neighborhood_0"],
+        "2_town": ["town_0"],
+        "1_county": ["Los_Angeles"],
     }
 
     for scale, locations in scale_locs.items():
@@ -308,8 +313,8 @@ if __name__ == "__main__":
 
             df_results = get_metrics_table(eval_dict, metrics_dict, scale, location)
 
-            fig = side_by_side(eval_dict, init_config)
+            # fig = side_by_side(eval_dict, init_config)
 
-            dist = error_distribution(eval_dict)
+            # dist = error_distribution(eval_dict)
 
             wandb.finish()
