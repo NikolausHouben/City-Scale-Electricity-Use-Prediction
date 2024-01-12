@@ -33,7 +33,7 @@ from utils.paths import ROOT_DIR, EVAL_DIR, RESULTS_DIR
 from utils.model_utils import Config
 
 
-def run_opt(load_forecast, bss_energy, peak, config, prices=None):
+def run_opt(load_forecast, bss_energy, config, prices=None):
     ################################
     # MPC optimization model
     ################################
@@ -43,24 +43,20 @@ def run_opt(load_forecast, bss_energy, peak, config, prices=None):
     # MPC Params
     m.demand = Param(m.T, initialize=load_forecast)
     m.bss_energy_start = Param(initialize=bss_energy)
-    m.rel_peak = Param(initialize=peak)
 
     # Config Params
     m.bss_size = Param(initialize=config.bat_size_kwh)
-    m.bss_eff = Param(initialize=config.bat_efficiency)
     m.bss_max_pow = Param(initialize=config.bat_max_power)
     m.bss_end_soc_weight = Param(initialize=config.bat_end_soc_weight)
 
     # variables
     m.net_load = Var(m.T, domain=Reals)
     m.peak = Var(domain=NonNegativeReals)
-    m.dev_peak_plus = Var(domain=NonNegativeReals)
-    m.dev_peak_minus = Var(domain=NonNegativeReals)
     m.bss_p_ch = Var(m.T, domain=Reals)
     m.bss_en = Var(m.T, domain=NonNegativeReals)
 
     def energy_balance(m, t):
-        return m.net_load[t] == m.bss_eff * m.bss_p_ch[t] + m.demand[t]
+        return m.net_load[t] == m.bss_p_ch[t] + m.demand[t]
 
     m.energy_balance = Constraint(m.T, rule=energy_balance)
 
@@ -114,6 +110,8 @@ def run_opt(load_forecast, bss_energy, peak, config, prices=None):
 
     res_df["load_forecast"] = list(m.demand._data.values())
 
+    # fig = px.line(res_df)
+    # fig.show()
     sp = res_df.iloc[0].to_dict()
 
     return sp
@@ -140,15 +138,9 @@ def run_operations(dfs_mpc, config, key):
         if key == "gt":
             load_forecast = load_ground_truth
 
-        if t == 0:
-            peak = sum(load_forecast) / len(load_forecast)  # peak initialisation
-        else:
-            peak = min(min(opr_net_load, peak), sum(load_forecast) / len(load_forecast))  # type: ignore
-
         sp = run_opt(
             load_forecast=load_forecast,
             bss_energy=energy_in_the_battery,
-            peak=peak,
             config=config,
         )
 
@@ -177,7 +169,7 @@ def run_operations(dfs_mpc, config, key):
     df_operations = pd.DataFrame(operations).T
 
     df_operations.index = pd.date_range(
-        dfs_mpc[0].index[1], periods=len(df_operations), freq="H"
+        dfs_mpc[0].index[0], periods=len(df_operations), freq="H"
     )
 
     return df_operations
@@ -187,17 +179,11 @@ def calculate_nle_stats(df_op, config):
     # ex-post cost calculation
 
     nle_stats = {}
-    # get the maximum peak of the ground truth per day
-    peaks = df_op["load_actual"].groupby(df_op.index.day).max()
-    # only consider peaks with 'high' load
-    relevant_idx_mask = peaks > df_op["load_actual"].quantile(0.8)
-    peak_idx = df_op["load_actual"].groupby(df_op.index.day).idxmax()[relevant_idx_mask]
-    relevant_peaks = df_op.loc[peak_idx][["opr_net_load", "load_actual"]]
-    peaks_diff = relevant_peaks["load_actual"] - relevant_peaks["opr_net_load"]
-    nle_stats["peak_reward"] = peaks_diff.mean() * config.peak_cost
+    # get the daily peak of the operational net load
+    peaks = df_op["opr_net_load"].groupby(df_op.index.day).max()
+    nle_stats["peak_cost"] = peaks.mean() * config.peak_cost
 
     # the number of cycles of the battery
-
     full_charge = np.isclose(
         df_op["bss_en"].values,
         np.ones(len(df_op)) * config.bat_size_kwh,
@@ -244,7 +230,7 @@ def run_nle(eval_dict, scale, location, horizon, season, model):
     df_gt = gt_series.pd_dataframe()  # idx=2: groundtruth (see eval_utils.py)
     df_gt.columns = ["gt_" + df_gt.columns[0]]  # rename column to avoid confusion
 
-    # grabbing stats for scaling the predictions and ground truth -> energy prices are a function of the ground truth
+    # grabbing stats for scaling the predictions and ground truth
     gt_max = df_gt.max().values[0]
     gt_min = df_gt.min().values[0]
     assert gt_max > gt_min, "Ground truth max is smaller than min or equal"
@@ -282,10 +268,10 @@ def run_nle(eval_dict, scale, location, horizon, season, model):
     df_op = pd.concat(dfs_operations, axis=1)
 
     nle_score = (
-        nle_stats_dict["gt"]["peak_reward"] - nle_stats_dict["forecast"]["peak_reward"]
+        nle_stats_dict["forecast"]["peak_cost"] - nle_stats_dict["gt"]["peak_cost"]
     )
 
-    nle_score = max(nle_score, 0)
+    nle_score = max(nle_score, 0)  # safety check
 
     return nle_score, df_op, df_nle_stats
 
@@ -295,17 +281,17 @@ def main():
     parser.add_argument("--scale", type=str, help="Spatial scale", default="1_county")
     parser.add_argument("--location", type=str, help="Location", default="Los_Angeles")
     parser.add_argument("--season", type=str, help="Winter or Summer", default="Summer")
-    parser.add_argument("--horizon", type=int, help="MPC horizon", default=24)
-    parser.add_argument("--model", type=str, default="XGBModel")
+    parser.add_argument("--horizon", type=int, help="MPC horizon", default=48)
+    parser.add_argument("--model", type=str, default="LinearRegressionModel")
     parser.add_argument("--wandb_mode", type=str, default="dryrun")
     args = parser.parse_args()
 
     os.environ["WANDB_MODE"] = args.wandb_mode
 
-    wandb.init(
-        project="nle",
-        name=f"{args.scale}_{args.location}_{args.horizon}_{args.season}_{args.model}",
-    )
+    # wandb.init(
+    #     project="nle",
+    #     name=f"{args.scale}_{args.location}_{args.horizon}_{args.season}_{args.model}",
+    # )
     with open(os.path.join(EVAL_DIR, f"{args.scale}/{args.location}.pkl"), "rb") as f:
         eval_dict = pickle.load(f)
 
@@ -313,10 +299,10 @@ def main():
         eval_dict, args.scale, args.location, args.horizon, args.season, args.model
     )
 
-    wandb.log({"nle_score": nle_score})
-    fig = px.line(df_operations)
-    wandb.log({"nle_operations": fig})
-    wandb.log({"nle_stats": wandb.Table(dataframe=df_nle_stats)})
+    # wandb.log({"nle_score": nle_score})
+    # fig = px.line(df_operations)
+    # wandb.log({"nle_operations": fig})
+    # wandb.log({"nle_stats": wandb.Table(dataframe=df_nle_stats)})
 
     df_operations.to_csv(
         os.path.join(
@@ -336,6 +322,8 @@ def main():
             f"{args.horizon}_{args.season}_{args.model}_stats.csv",
         )
     )
+
+    print(f"NLE Score: {nle_score}")
 
 
 if __name__ == "__main__":

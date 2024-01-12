@@ -10,7 +10,6 @@ import pickle
 
 import wandb
 
-from evaluation import evaluate
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.pipeline import Config, get_best_run_config
@@ -90,13 +89,9 @@ if __name__ == "__main__":
         "--models_to_train",
         nargs="+",
         type=str,
-        default=[
-            "rf",
-        ],  # "xgb", "lgbm", "gru", "nbeats", "tft"], #TODO Test if LinearRegression works for "REDO runs"
+        default=["rf", "xgb", "lgbm", "gru", "nbeats", "tft"],
     )
     parser.add_argument("--train", type=bool, default=False)
-    parser.add_argument("--evaluate", type=bool, default=False)
-    parser.add_argument("--results", type=bool, default=True)
 
     args = parser.parse_args()
 
@@ -130,25 +125,5 @@ if __name__ == "__main__":
 
     if args.train:
         models_dict = training(init_config)
-    else:
-        models_dict = None
-
-    if args.evaluate and models_dict is not None:
-        eval_dict = evaluate(init_config, models_dict)
-    else:
-        try:
-            with open(
-                os.path.join(
-                    EVAL_DIR,
-                    init_config["spatial_scale"],
-                    f"{init_config['location']}.pkl",
-                ),
-                "rb",
-            ) as f:
-                eval_dict = pickle.load(f)
-        except:
-            raise Exception(
-                "No evaluation found, please run evaluation first or set --evaluate to True"
-            )
 
     wandb.finish()

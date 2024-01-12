@@ -1,0 +1,46 @@
+scale,horizon_in_hours,group,nle
+2_town_town_0,1,Tree-based,
+2_town_town_0,1,Neural Network,
+2_town_town_0,1,Benchmark,
+2_town_town_0,4,Tree-based,0.04541236207621593
+2_town_town_0,4,Neural Network,0.03988268607337074
+2_town_town_0,4,Benchmark,0.050570002470460465
+2_town_town_0,8,Tree-based,0.04136618812286772
+2_town_town_0,8,Neural Network,0.034635855436715636
+2_town_town_0,8,Benchmark,0.03676603140965797
+2_town_town_0,24,Tree-based,0.025425763876570674
+2_town_town_0,24,Neural Network,0.031767425239664894
+2_town_town_0,24,Benchmark,0.04228199397161736
+2_town_town_0,48,Tree-based,0.02107046872065102
+2_town_town_0,48,Neural Network,0.007771306106440064
+2_town_town_0,48,Benchmark,0.03086590462925591
+2_town_town_1,1,Tree-based,
+2_town_town_1,1,Neural Network,
+2_town_town_1,1,Benchmark,
+2_town_town_1,4,Tree-based,0.04029104359223
+2_town_town_1,4,Neural Network,0.032285148510846885
+2_town_town_1,4,Benchmark,0.042788936801741416
+2_town_town_1,8,Tree-based,0.03780392263184117
+2_town_town_1,8,Neural Network,0.03641525621587638
+2_town_town_1,8,Benchmark,0.04226901026017452
+2_town_town_1,24,Tree-based,0.02511165316021454
+2_town_town_1,24,Neural Network,0.021310874800424384
+2_town_town_1,24,Benchmark,0.0355751763360433
+2_town_town_1,48,Tree-based,0.017568929754561046
+2_town_town_1,48,Neural Network,0.01157523843153024
+2_town_town_1,48,Benchmark,0.03926365745327361
+2_town_town_2,1,Tree-based,
+2_town_town_2,1,Neural Network,
+2_town_town_2,1,Benchmark,
+2_town_town_2,4,Tree-based,0.053256956256529
+2_town_town_2,4,Neural Network,0.04542365377679827
+2_town_town_2,4,Benchmark,0.054794846102466335
+2_town_town_2,8,Tree-based,0.02313587392731214
+2_town_town_2,8,Neural Network,0.024815906966299955
+2_town_town_2,8,Benchmark,0.026573182260854485
+2_town_town_2,24,Tree-based,0.014409370696931614
+2_town_town_2,24,Neural Network,0.021573292833367542
+2_town_town_2,24,Benchmark,0.008663674037041259
+2_town_town_2,48,Tree-based,0.01243130095187257
+2_town_town_2,48,Neural Network,-0.0030635793559482573
+2_town_town_2,48,Benchmark,0.011640340671052834

@@ -27,7 +27,8 @@
         "r2_score",
         "smape",
         "mape",
-        "nle"
+        "nle",
+        "timestep_std"
     ],
     "hours_persistence": 48
 }

@@ -1,0 +1,46 @@
+scale,horizon_in_hours,group,nle
+1_county_Sacramento,1,Tree-based,
+1_county_Sacramento,1,Neural Network,
+1_county_Sacramento,1,Benchmark,
+1_county_Sacramento,4,Tree-based,0.063
+1_county_Sacramento,4,Neural Network,0.061
+1_county_Sacramento,4,Benchmark,0.067
+1_county_Sacramento,8,Tree-based,0.059
+1_county_Sacramento,8,Neural Network,0.055
+1_county_Sacramento,8,Benchmark,0.061
+1_county_Sacramento,24,Tree-based,0.053
+1_county_Sacramento,24,Neural Network,0.054
+1_county_Sacramento,24,Benchmark,0.058
+1_county_Sacramento,48,Tree-based,0.04
+1_county_Sacramento,48,Neural Network,0.034
+1_county_Sacramento,48,Benchmark,0.05
+1_county_New_York,1,Tree-based,
+1_county_New_York,1,Neural Network,
+1_county_New_York,1,Benchmark,
+1_county_New_York,4,Tree-based,0.06
+1_county_New_York,4,Neural Network,0.058
+1_county_New_York,4,Benchmark,0.061
+1_county_New_York,8,Tree-based,0.055
+1_county_New_York,8,Neural Network,0.051
+1_county_New_York,8,Benchmark,0.057
+1_county_New_York,24,Tree-based,0.052
+1_county_New_York,24,Neural Network,0.046
+1_county_New_York,24,Benchmark,0.053
+1_county_New_York,48,Tree-based,0.035
+1_county_New_York,48,Neural Network,0.029
+1_county_New_York,48,Benchmark,0.04
+1_county_Los_Angeles,1,Tree-based,
+1_county_Los_Angeles,1,Neural Network,
+1_county_Los_Angeles,1,Benchmark,
+1_county_Los_Angeles,4,Tree-based,0.07
+1_county_Los_Angeles,4,Neural Network,0.067
+1_county_Los_Angeles,4,Benchmark,0.071
+1_county_Los_Angeles,8,Tree-based,0.047
+1_county_Los_Angeles,8,Neural Network,0.046
+1_county_Los_Angeles,8,Benchmark,0.049
+1_county_Los_Angeles,24,Tree-based,0.034
+1_county_Los_Angeles,24,Neural Network,0.03
+1_county_Los_Angeles,24,Benchmark,0.038
+1_county_Los_Angeles,48,Tree-based,0.029
+1_county_Los_Angeles,48,Neural Network,0.025
+1_county_Los_Angeles,48,Benchmark,0.034

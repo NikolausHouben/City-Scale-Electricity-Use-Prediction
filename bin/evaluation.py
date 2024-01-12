@@ -101,6 +101,19 @@ def diebold(df):
     pass
 
 
+def timestep_std(df):
+    """Calculates the standard deviation of the values for the same timesteps in the dataframe"""
+    return (
+        df.iloc[:, [0]]
+        .reset_index()
+        .groupby("datetime")
+        .std()
+        .dropna()
+        .mean()
+        .values.flatten()[0]
+    )
+
+
 metrics_dict = {
     "rmse": rmse,
     "mape": mape,
@@ -110,7 +123,7 @@ metrics_dict = {
     "max_peak_error": max_peak_error,
     "mean_n_peak_error": mean_n_peak_error,
     "nle": run_nle,
-    "db": diebold,
+    "timestep_std": timestep_std,
 }
 
 
@@ -143,23 +156,22 @@ def get_metrics_table(eval_dict, metrics_dict, scale, location):
     df_results = pd.DataFrame(columns=keys + list(metrics_dict.keys()))
     for horizon in eval_dict.keys():
         for season in eval_dict[horizon].keys():
-            if season == "Summer":
-                for model in eval_dict[horizon][season][0].keys():
-                    df_ = get_eval_df(eval_dict, horizon, season, model)
-                    results_dict = dict(zip(keys, [horizon, season, model]))
-                    for metric_str, metric_fn in metrics_dict.items():
-                        if metric_str == "nle":
-                            if horizon == 1:  # nle only works for horizon > 1
-                                results_dict[metric_str] = np.nan
-                            else:
-                                results_dict[metric_str] = metric_fn(
-                                    eval_dict, scale, location, horizon, season, model
-                                )[0]
+            for model in eval_dict[horizon][season][0].keys():
+                df_ = get_eval_df(eval_dict, horizon, season, model)
+                results_dict = dict(zip(keys, [horizon, season, model]))
+                for metric_str, metric_fn in metrics_dict.items():
+                    if metric_str == "nle":
+                        if horizon == 1:  # nle only works for horizon > 1
+                            results_dict[metric_str] = np.nan
                         else:
-                            results_dict[metric_str] = metric_fn(df_)
+                            results_dict[metric_str] = metric_fn(
+                                eval_dict, scale, location, horizon, season, model
+                            )[0]
+                    else:
+                        results_dict[metric_str] = metric_fn(df_)
 
-                    df_result = pd.DataFrame(results_dict, index=[0])
-                    df_results = pd.concat([df_results, df_result], axis=0)
+                df_result = pd.DataFrame(results_dict, index=[0])
+                df_results = pd.concat([df_results, df_result], axis=0)
 
     df_results = df_results.reset_index(drop=True)
 
@@ -252,42 +264,15 @@ def side_by_side(dict_result_n_ahead, config):
     return None
 
 
-def error_distribution(dict_result_n_ahead):
-    print("Plotting error distribution")
-
-    n_ahead, dict_result_season = list(dict_result_n_ahead.items())[-1]
-    model_names = list(dict_result_n_ahead[1]["Summer"][1].keys())[:-2]
-    for season, (historics_per_model, _, gt) in dict_result_season.items():
-        fig, ax = plt.subplots(
-            ncols=len(model_names), figsize=(5 * len(model_names), 5)
-        )
-        fig.suptitle(f"Absolute Error Distribution in {season} for Horizon {n_ahead}")
-        for i, (model_name, historics) in enumerate(
-            list(historics_per_model.items())[:-1]
-        ):
-            df_list = get_df_compares_list(historics, gt)
-            diffs = get_df_diffs(df_list)
-            diffs_flat = pd.Series(
-                diffs.values.reshape(
-                    -1,
-                )
-            )
-            ax[i].hist(diffs_flat, bins=100)
-            ax[i].set_title(model_name)
-
-        wandb.log({f"Error Distribution in {season}": wandb.Image(fig)})
-    return None
-
-
 if __name__ == "__main__":
     # os.environ["WANDB_MODE"] = "dryrun"
     wandb.login()
 
     scale_locs = {
-        "5_building": ["building_1"],
-        "4_neighborhood": ["neighborhood_0"],
-        "2_town": ["town_0"],
-        "1_county": ["Los_Angeles"],
+        "5_building": ["building_1", "building_2"],
+        "4_neighborhood": ["neighborhood_0", "neighborhood_1", "neighborhood_2"],
+        "2_town": ["town_0", "town_1", "town_2"],
+        "1_county": ["Los_Angeles", "New_York", "Sacramento"],
     }
 
     for scale, locations in scale_locs.items():
@@ -314,7 +299,5 @@ if __name__ == "__main__":
             df_results = get_metrics_table(eval_dict, metrics_dict, scale, location)
 
             # fig = side_by_side(eval_dict, init_config)
-
-            # dist = error_distribution(eval_dict)
 
             wandb.finish()

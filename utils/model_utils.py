@@ -161,7 +161,7 @@ def get_model(config):
         devices_value = 1  # use 1 CPU core
 
     pl_trainer_kwargs = {
-        "max_epochs": 20,
+        "max_epochs": 2,
         "accelerator": "gpu" if cuda else "cpu",
         "devices": devices_value,
         "callbacks": [EarlyStopping(monitor="val_loss", patience=5, mode="min")],

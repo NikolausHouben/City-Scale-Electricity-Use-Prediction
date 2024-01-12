@@ -460,11 +460,14 @@ def get_best_model_per_scale_and_horizon(df, metric):
 
     if ("skill" in metric) or ("r2" in metric):
         df_metrics_grouped = df.sort_values(by=["scale", metric], ascending=False)
+        df_sorted = df_metrics_grouped.drop_duplicates(
+            subset=["scale", "horizon_in_hours"], keep="last"
+        )
     else:
         df_metrics_grouped = df.sort_values(by=["scale", metric], ascending=True)
-    df_sorted = df_metrics_grouped.drop_duplicates(
-        subset=["scale", "horizon_in_hours"], keep="first"
-    )
+        df_sorted = df_metrics_grouped.drop_duplicates(
+            subset=["scale", "horizon_in_hours"], keep="first"
+        )
     df_sorted = df_sorted.sort_values(by=["scale", "horizon_in_hours"])
     df_sorted = df_sorted.reset_index(drop=True).sort_values(
         by=["scale", "horizon_in_hours"]
